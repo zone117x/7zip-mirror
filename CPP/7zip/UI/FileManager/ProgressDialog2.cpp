@@ -254,7 +254,7 @@ CProgressDialog::CProgressDialog(): _timer(0), CompressingMode(true), MainWindow
   _waitCloseByCancelButton = false;
   _cancelWasPressed = false;
   ShowCompressionInfo = true;
-  WaitMode = false;
+  // FIXME not supported   WaitMode = false;
   if (_dialogCreatedEvent.Create() != S_OK)
     throw 1334987;
   if (_createDialogEvent.Create() != S_OK)
@@ -322,11 +322,13 @@ void CProgressDialog::EnableErrorsControls(bool enable)
 
 bool CProgressDialog::OnInit()
 {
+#ifdef _WIN32
   _hwndForTaskbar = MainWindow;
   if (!_hwndForTaskbar)
     _hwndForTaskbar = GetParent();
   if (!_hwndForTaskbar)
     _hwndForTaskbar = *this;
+#endif
 
   INIT_AS_UNDEFINED(_progressBar_Range);
   INIT_AS_UNDEFINED(_progressBar_Pos);
@@ -350,8 +352,8 @@ bool CProgressDialog::OnInit()
   _foreground = true;
 
   m_ProgressBar.Attach(GetItem(IDC_PROGRESS1));
-  _messageList.Attach(GetItem(IDL_PROGRESS_MESSAGES));
-  _messageList.SetUnicodeFormat();
+  // FIXME _messageList.Attach(GetItem(IDL_PROGRESS_MESSAGES));
+  // FIXME _messageList.SetUnicodeFormat();
 
   _wasCreated = true;
   _dialogCreatedEvent.Set();
@@ -377,15 +379,15 @@ bool CProgressDialog::OnInit()
   SetPauseText();
   SetPriorityText();
 
-  _messageList.InsertColumn(0, L"", 30);
-  _messageList.InsertColumn(1, L"", 600);
+  // FIXME _messageList.InsertColumn(0, L"", 30);
+  // FIXME _messageList.InsertColumn(1, L"", 600);
 
-  _messageList.SetColumnWidthAuto(0);
-  _messageList.SetColumnWidthAuto(1);
+  // FIXME _messageList.SetColumnWidthAuto(0);
+  // FIXME _messageList.SetColumnWidthAuto(1);
 
   EnableErrorsControls(false);
 
-  GetItemSizes(IDCANCEL, _buttonSizeX, _buttonSizeY);
+  // FIXME GetItemSizes(IDCANCEL, _buttonSizeX, _buttonSizeY);
   _numReduceSymbols = kCurrentFileNameSizeLimit;
   NormalizeSize(true);
 
@@ -397,12 +399,14 @@ bool CProgressDialog::OnInit()
     HideItem(IDT_PROGRESS_RATIO_VAL);
   }
 
+#ifdef _WIN32
   if (IconID >= 0)
   {
     HICON icon = LoadIcon(g_hInstance, MAKEINTRESOURCE(IconID));
     // SetIcon(ICON_SMALL, icon);
     SetIcon(ICON_BIG, icon);
   }
+#endif
   _timer = SetTimer(kTimerID, kTimerElapse);
   #ifdef UNDER_CE
   Foreground();
@@ -431,6 +435,7 @@ static const UINT kIDs[] =
 
 bool CProgressDialog::OnSize(WPARAM /* wParam */, int xSize, int ySize)
 {
+#ifdef _WIN32
   int sY;
   int sStep;
   int mx, my;
@@ -547,6 +552,7 @@ bool CProgressDialog::OnSize(WPARAM /* wParam */, int xSize, int ySize)
     MoveItem(kIDs[i + 1], x + labelSize, yPos, valueSize, sY);
     yPos += sStep;
   }
+#endif
   return false;
 }
 
@@ -912,6 +918,7 @@ bool CProgressDialog::OnTimer(WPARAM /* timerID */, LPARAM /* callback */)
   return true;
 }
 
+#ifdef _WIN32 // FIXME
 struct CWaitCursor
 {
   HCURSOR _waitCursor;
@@ -928,21 +935,24 @@ struct CWaitCursor
       SetCursor(_oldCursor);
   }
 };
+#endif
 
 INT_PTR CProgressDialog::Create(const UString &title, NWindows::CThread &thread, HWND wndParent)
 {
   INT_PTR res = 0;
   try
   {
+#ifdef _WIN32
     if (WaitMode)
     {
       CWaitCursor waitCursor;
       HANDLE h[] = { thread, _createDialogEvent };
       
-      WRes res2 = WaitForMultipleObjects(ARRAY_SIZE(h), h, FALSE, kCreateDelay);
-      if (res2 == WAIT_OBJECT_0 && !Sync.ThereIsMessage())
+      WRes res = WaitForMultipleObjects(ARRAY_SIZE(h), h, FALSE, kCreateDelay);
+      if (res == WAIT_OBJECT_0 && !Sync.ThereIsMessage())
         return 0;
     }
+#endif
     _title = title;
     BIG_DIALOG_SIZE(360, 192);
     res = CModalDialog::Create(SIZED_DIALOG(IDD_PROGRESS), wndParent);
@@ -971,7 +981,7 @@ bool CProgressDialog::OnExternalCloseMessage()
   UpdateStatInfo(true);
   
   SetItemText(IDCANCEL, LangString(IDS_CLOSE));
-  ::SendMessage(GetItem(IDCANCEL), BM_SETSTYLE, BS_DEFPUSHBUTTON, MAKELPARAM(TRUE, 0));
+  // FIXME ::SendMessage(GetItem(IDCANCEL), BM_SETSTYLE, BS_DEFPUSHBUTTON, MAKELPARAM(TRUE, 0));
   HideItem(IDB_PROGRESS_BACKGROUND);
   HideItem(IDB_PAUSE);
   
@@ -1002,9 +1012,35 @@ bool CProgressDialog::OnExternalCloseMessage()
 
   if (thereAreMessages && !_cancelWasPressed)
   {
+#ifdef _WIN32
     _waitCloseByCancelButton = true;
     UpdateMessagesDialog();
     return true;
+#else
+ 
+	// FIXME : p7zip does not have a messages zone
+	// FIXME : even if so, the close button does not close the main window
+	// So p7zip uses a MessageBoxW ...
+	  UStringVector messages;
+	  {
+		  NWindows::NSynchronization::CCriticalSectionLock lock(Sync._cs);
+		  for (int i = 0; i < Sync.Messages.Size(); i++)
+			  messages.Add(Sync.Messages[i]);
+		  _numPostedMessages = Sync.Messages.Size();
+	  }
+	  
+	  if (!messages.IsEmpty())
+	  {
+		  for (int i = 0; i < messages.Size(); i++)
+			  fm.ErrorMessage.Message = fm.ErrorMessage.Message + messages[i] + L"\n";
+	  }
+	  else
+		  fm.ErrorMessage.Message = L"Error(s) in the archive";
+	  
+	  MessageBoxW(*this, fm.ErrorMessage.Message, L"7-Zip - ERROR", MB_ICONERROR | MB_OK);
+
+	  MessagesDisplayed = true;
+#endif	  
   }
 
   End(0);
@@ -1117,6 +1153,7 @@ void CProgressDialog::OnPriorityButton()
 
 void CProgressDialog::AddMessageDirect(LPCWSTR message, bool needNumber)
 {
+#ifdef _WIN32 // FIXME
   int itemIndex = _messageList.GetItemCount();
   wchar_t sz[16];
   sz[0] = 0;
@@ -1124,6 +1161,7 @@ void CProgressDialog::AddMessageDirect(LPCWSTR message, bool needNumber)
     ConvertUInt32ToString(_numMessages + 1, sz);
   _messageList.InsertItem(itemIndex, sz);
   _messageList.SetSubItem(itemIndex, 1, message);
+#endif
 }
 
 void CProgressDialog::AddMessage(LPCWSTR message)
@@ -1171,8 +1209,8 @@ void CProgressDialog::UpdateMessagesDialog()
       AddMessage(messages[i]);
     if (_numAutoSizeMessages < 256 || GetNumDigits(_numPostedMessages) > GetNumDigits(_numAutoSizeMessages))
     {
-      _messageList.SetColumnWidthAuto(0);
-      _messageList.SetColumnWidthAuto(1);
+      // FIXME _messageList.SetColumnWidthAuto(0);
+      // FIXME _messageList.SetColumnWidthAuto(1);
       _numAutoSizeMessages = _numPostedMessages;
     }
   }
@@ -1235,7 +1273,7 @@ void CProgressDialog::CheckNeedClose()
 void CProgressDialog::ProcessWasFinished()
 {
   // Set Window title here.
-  if (!WaitMode)
+  // FIXME - not supported if (!WaitMode)
     WaitCreating();
   
   if (_wasCreated)

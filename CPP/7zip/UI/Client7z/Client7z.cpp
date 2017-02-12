@@ -229,10 +229,14 @@ private:
 
   COutFileStream *_outFileStreamSpec;
   CMyComPtr<ISequentialOutStream> _outFileStream;
+  
+  CObjectVector<NWindows::NFile::NDir::CDelayedSymLink> _delayedSymLinks;
 
 public:
   void Init(IInArchive *archiveHandler, const FString &directoryPath);
 
+  HRESULT SetFinalAttribs();
+  
   UInt64 NumErrors;
   bool PasswordIsDefined;
   UString Password;
@@ -449,11 +453,23 @@ STDMETHODIMP CArchiveExtractCallback::SetOperationResult(Int32 operationResult)
   }
   _outFileStream.Release();
   if (_extractMode && _processedFileInfo.AttribDefined)
-    SetFileAttrib(_diskFilePath, _processedFileInfo.Attrib);
+    SetFileAttrib(_diskFilePath, _processedFileInfo.Attrib, &_delayedSymLinks);
   PrintNewLine();
   return S_OK;
 }
 
+HRESULT CArchiveExtractCallback::SetFinalAttribs()
+{
+  HRESULT result = S_OK;
+
+  for (int i = 0; i != _delayedSymLinks.Size(); ++i)
+    if (!_delayedSymLinks[i].Create())
+      result = E_FAIL;
+
+  _delayedSymLinks.Clear();
+
+  return result;
+}
 
 STDMETHODIMP CArchiveExtractCallback::CryptoGetTextPassword(BSTR *password)
 {
@@ -943,7 +959,8 @@ int MY_CDECL main(int numArgs, const char *args[])
       */
 
       HRESULT result = archive->Extract(NULL, (UInt32)(Int32)(-1), false, extractCallback);
-  
+      if (result == S_OK)
+        result = extractCallbackSpec->SetFinalAttribs();  
       if (result != S_OK)
       {
         PrintError("Extract Error");

@@ -1,105 +1,100 @@
 ; 7zAsm.asm -- ASM macros
-; 2012-12-30 : Igor Pavlov : Public domain
+; 2009-12-12 : Igor Pavlov : Public domain
+; 2011-10-12 : P7ZIP       : Public domain
 
-MY_ASM_START macro
-  ifdef x64
-    .code
-  else
-    .386
-    .model flat
-    _TEXT$00 SEGMENT PARA PUBLIC 'CODE'
-  endif
-endm
+%define NOT ~
 
-MY_PROC macro name:req, numParams:req
+%macro MY_ASM_START 0
+  SECTION .text
+%endmacro
+
+%macro MY_PROC 2 ; macro name:req, numParams:req
   align 16
-  proc_numParams = numParams
-  ifdef x64
-    proc_name equ name
-  else
-    proc_name equ @CatStr(@,name,@, %numParams * 4)
-  endif
-  proc_name PROC
-endm
+  %define proc_numParams %2 ; numParams
+    global %1
+    global _%1
+    %1:
+    _%1:
+%endmacro
 
-MY_ENDP macro
-  ifdef x64
+%macro  MY_ENDP 0
+  %ifdef x64
     ret
-  else
-    if proc_numParams LT 3
-      ret
-    else
-      ret (proc_numParams - 2) * 4
-    endif
-  endif
-  proc_name ENDP
-endm
+    ; proc_name ENDP
+  %else
+    ret ; (proc_numParams - 2) * 4
+  %endif
+%endmacro
 
-ifdef x64
+%ifdef x64
   REG_SIZE equ 8
-  REG_LOGAR_SIZE equ 3
-else
+%else
   REG_SIZE equ 4
-  REG_LOGAR_SIZE equ 2
-endif
+%endif
 
-  x0 equ EAX
-  x1 equ ECX
-  x2 equ EDX
-  x3 equ EBX
-  x4 equ ESP
-  x5 equ EBP
-  x6 equ ESI
-  x7 equ EDI
+  %define x0  EAX
+  %define x1  ECX
+  %define x2  EDX
+  %define x3  EBX
+  %define x4  ESP
+  %define x5  EBP
+  %define x6  ESI
+  %define x7  EDI
 
-  x0_L equ AL
-  x1_L equ CL
-  x2_L equ DL
-  x3_L equ BL
+  %define x0_L  AL
+  %define x1_L  CL
+  %define x2_L  DL
+  %define x3_L  BL
 
-  x0_H equ AH
-  x1_H equ CH
-  x2_H equ DH
-  x3_H equ BH
+  %define x0_H  AH
+  %define x1_H  CH
+  %define x2_H  DH
+  %define x3_H  BH
 
-ifdef x64
-  r0 equ RAX
-  r1 equ RCX
-  r2 equ RDX
-  r3 equ RBX
-  r4 equ RSP
-  r5 equ RBP
-  r6 equ RSI
-  r7 equ RDI
-  x8 equ r8d
-  x9 equ r9d
-  x10 equ r10d
-  x11 equ r11d
-  x12 equ r12d
-  x13 equ r13d
-  x14 equ r14d
-  x15 equ r15d
-else
-  r0 equ x0
-  r1 equ x1
-  r2 equ x2
-  r3 equ x3
-  r4 equ x4
-  r5 equ x5
-  r6 equ x6
-  r7 equ x7
-endif
+%ifdef x64
+  %define r0  RAX
+  %define r1  RCX
+  %define r2  RDX
+  %define r3  RBX
+  %define r4  RSP
+  %define r5  RBP
+  %define r6  RSI
+  %define r7  RDI
+%else
+  %define r0  x0
+  %define r1  x1
+  %define r2  x2
+  %define r3  x3
+  %define r4  x4
+  %define r5  x5
+  %define r6  x6
+ %define  r7  x7
+%endif
 
-MY_PUSH_4_REGS macro
+%macro MY_PUSH_4_REGS 0
     push    r3
     push    r5
+%ifdef x64
+  %ifdef CYGWIN64
     push    r6
     push    r7
-endm
+  %endif
+%else
+    push    r6
+    push    r7
+%endif
+%endmacro
 
-MY_POP_4_REGS macro
+%macro MY_POP_4_REGS 0
+%ifdef x64
+  %ifdef CYGWIN64
     pop     r7
     pop     r6
+  %endif
+%else
+    pop     r7
+    pop     r6
+%endif
     pop     r5
     pop     r3
-endm
+%endmacro

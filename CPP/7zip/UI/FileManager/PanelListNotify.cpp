@@ -27,7 +27,7 @@ static void ConvertSizeToString(UInt64 val, wchar_t *s) throw()
 {
   unsigned char temp[32];
   unsigned i = 0;
-  
+
   if (val <= (UInt32)0xFFFFFFFF)
   {
     UInt32 val32 = (UInt32)val;
@@ -68,7 +68,7 @@ static void ConvertSizeToString(UInt64 val, wchar_t *s) throw()
     s += 4;
   }
   while (i -= 3);
-  
+
   *s = 0;
 }
 
@@ -174,8 +174,8 @@ LRESULT CPanel::SetItemText(LVITEMW &item)
 
   if (item.cchTextMax <= 1)
     return 0;
-  
-  const CPropColumn &property = _visibleColumns[item.iSubItem];
+
+  const CItemProperty &property = _visibleProperties[item.iSubItem];
   PROPID propID = property.ID;
 
   if (realIndex == kParentIndex)
@@ -192,7 +192,7 @@ LRESULT CPanel::SetItemText(LVITEMW &item)
     return 0;
   }
 
- 
+
   if (property.IsRawProp)
   {
     const void *data;
@@ -205,7 +205,8 @@ LRESULT CPanel::SetItemText(LVITEMW &item)
       text[0] = 0;
       return 0;
     }
-    
+
+#ifdef _WIN32
     if (propID == kpidNtReparse)
     {
       UString s;
@@ -224,6 +225,7 @@ LRESULT CPanel::SetItemText(LVITEMW &item)
         return 0;
       }
     }
+#endif
     else if (propID == kpidNtSecure)
     {
       AString s;
@@ -320,19 +322,19 @@ LRESULT CPanel::SetItemText(LVITEMW &item)
       const wchar_t *name = NULL;
       unsigned nameLen = 0;
       _folderGetItemName->GetItemName(realIndex, &name, &nameLen);
-      
+
       if (name)
       {
         unsigned dest = 0;
         unsigned limit = item.cchTextMax - 1;
-        
+
         for (unsigned i = 0; dest < limit;)
         {
           wchar_t c = name[i++];
           if (c == 0)
             break;
           text[dest++] = c;
-          
+
           if (c != ' ')
           {
             if (c != 0x202E) // RLO
@@ -340,13 +342,13 @@ LRESULT CPanel::SetItemText(LVITEMW &item)
             text[dest - 1] = '_';
             continue;
           }
-          
+
           if (name[i + 1] != ' ')
             continue;
-          
+
           unsigned t = 2;
           for (; name[i + t] == ' '; t++);
-        
+
           if (t >= 4 && dest + 4 <= limit)
           {
             text[dest++] = '.';
@@ -356,13 +358,13 @@ LRESULT CPanel::SetItemText(LVITEMW &item)
             i += t;
           }
         }
+
         text[dest] = 0;
-        // OutputDebugStringW(text);
         return 0;
       }
     }
   }
-  
+
   if (propID == kpidPrefix)
   {
     if (_folderGetItemName)
@@ -386,9 +388,9 @@ LRESULT CPanel::SetItemText(LVITEMW &item)
       }
     }
   }
-  
+
   HRESULT res = _folder->GetProperty(realIndex, propID, &prop);
-  
+
   if (res != S_OK)
   {
     MyStringCopy(text, L"Error: ");
@@ -430,7 +432,7 @@ LRESULT CPanel::SetItemText(LVITEMW &item)
     }
     text[i] = 0;
   }
-  
+
   return 0;
 }
 
@@ -447,13 +449,17 @@ void CPanel::OnItemChanged(NMLISTVIEW *item)
   bool newSelected = (item->uNewState & LVIS_SELECTED) != 0;
   // Don't change this code. It works only with such check
   if (oldSelected != newSelected)
+  {
+      printf("CPanel::OnItemChanged : _selectedStatusVector[%d]= %d %d => %d\n",index,_selectedStatusVector[index],oldSelected,newSelected);
     _selectedStatusVector[index] = newSelected;
+  }
 }
 
 extern bool g_LVN_ITEMACTIVATE_Support;
 
 void CPanel::OnNotifyActivateItems()
 {
+#ifdef _WIN32
   bool alt = IsKeyDown(VK_MENU);
   bool ctrl = IsKeyDown(VK_CONTROL);
   bool shift = IsKeyDown(VK_SHIFT);
@@ -461,6 +467,9 @@ void CPanel::OnNotifyActivateItems()
     Properties();
   else
     OpenSelectedItems(!shift || alt || ctrl);
+#else
+    OpenSelectedItems(true);
+#endif
 }
 
 bool CPanel::OnNotifyList(LPNMHDR header, LRESULT &result)
@@ -473,7 +482,7 @@ bool CPanel::OnNotifyList(LPNMHDR header, LRESULT &result)
       {
         if (!_mySelectMode)
           OnItemChanged((LPNMLISTVIEW)header);
-        
+
         // Post_Refresh_StatusBar();
         /* 9.26: we don't call Post_Refresh_StatusBar.
            it was very slow if we select big number of files
@@ -492,6 +501,7 @@ bool CPanel::OnNotifyList(LPNMHDR header, LRESULT &result)
       }
     */
 
+#ifdef _WIN32
     case LVN_GETDISPINFOW:
     {
       LV_DISPINFOW *dispInfo = (LV_DISPINFOW *)header;
@@ -518,11 +528,13 @@ bool CPanel::OnNotifyList(LPNMHDR header, LRESULT &result)
       }
       return boolResult;
     }
+#endif
 
     case LVN_COLUMNCLICK:
       OnColumnClick(LPNMLISTVIEW(header));
       return false;
 
+#ifdef _WIN32
     case LVN_ITEMACTIVATE:
       if (g_LVN_ITEMACTIVATE_Support)
       {
@@ -530,15 +542,17 @@ bool CPanel::OnNotifyList(LPNMHDR header, LRESULT &result)
         return false;
       }
       break;
+#endif
     case NM_DBLCLK:
-    case NM_RETURN:
-      if (!g_LVN_ITEMACTIVATE_Support)
+    // FIXME case NM_RETURN:
+      // FIXME if (!g_LVN_ITEMACTIVATE_Support)
       {
         OnNotifyActivateItems();
         return false;
       }
       break;
 
+#ifdef _WIN32
     case NM_RCLICK:
       Post_Refresh_StatusBar();
       break;
@@ -550,7 +564,7 @@ bool CPanel::OnNotifyList(LPNMHDR header, LRESULT &result)
       case NM_CLICK:
       SendRefreshStatusBarMessage();
       return 0;
-      
+
         // TODO : Handler default action...
         return 0;
         case LVN_ITEMCHANGED:
@@ -596,10 +610,12 @@ bool CPanel::OnNotifyList(LPNMHDR header, LRESULT &result)
       break;
     }
     // case LVN_BEGINRDRAG:
+#endif
   }
   return false;
 }
 
+#ifdef _WIN32
 bool CPanel::OnCustomDraw(LPNMLVCUSTOMDRAW lplvcd, LRESULT &result)
 {
   switch (lplvcd->nmcd.dwDrawStage)
@@ -607,7 +623,7 @@ bool CPanel::OnCustomDraw(LPNMLVCUSTOMDRAW lplvcd, LRESULT &result)
   case CDDS_PREPAINT :
     result = CDRF_NOTIFYITEMDRAW;
     return true;
-    
+
   case CDDS_ITEMPREPAINT:
     /*
     SelectObject(lplvcd->nmcd.hdc,
@@ -635,7 +651,7 @@ bool CPanel::OnCustomDraw(LPNMLVCUSTOMDRAW lplvcd, LRESULT &result)
     // result = CDRF_NEWFONT;
     result = CDRF_NOTIFYITEMDRAW;
     return true;
-    
+
     // return false;
     // return true;
     /*
@@ -660,9 +676,11 @@ bool CPanel::OnCustomDraw(LPNMLVCUSTOMDRAW lplvcd, LRESULT &result)
   }
   return false;
 }
+#endif
 
 void CPanel::Refresh_StatusBar()
 {
+#ifdef _WIN32
   /*
   g_name_cnt++;
   char s[256];
@@ -725,7 +743,7 @@ void CPanel::Refresh_StatusBar()
   }
   _statusBar.SetText(2, sizeString);
   _statusBar.SetText(3, dateString);
-  
+
   // _statusBar.SetText(4, nameString);
   // _statusBar2.SetText(1, MyFormatNew(L"{0} bytes", NumberToStringW(totalSize)));
   // }
@@ -734,4 +752,5 @@ void CPanel::Refresh_StatusBar()
   sprintf(s, "status = %8d ms", dw);
   OutputDebugStringA(s);
   */
+#endif
 }

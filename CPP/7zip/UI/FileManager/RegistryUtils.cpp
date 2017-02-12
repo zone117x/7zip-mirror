@@ -18,23 +18,20 @@ static const TCHAR *kCU_FMPath = REG_PATH_7Z TEXT(STRING_PATH_SEPARATOR) TEXT("F
 // static const TCHAR *kLM_Path = REG_PATH_7Z TEXT(STRING_PATH_SEPARATOR) TEXT("FM");
 
 static const WCHAR *kLangValueName = L"Lang";
-
 static const WCHAR *kViewer = L"Viewer";
 static const WCHAR *kEditor = L"Editor";
 static const WCHAR *kDiff = L"Diff";
-
 static const TCHAR *kShowDots = TEXT("ShowDots");
 static const TCHAR *kShowRealFileIcons = TEXT("ShowRealFileIcons");
-static const TCHAR *kFullRow = TEXT("FullRow");
-static const TCHAR *kShowGrid = TEXT("ShowGrid");
-static const TCHAR *kSingleClick = TEXT("SingleClick");
-static const TCHAR *kAlternativeSelection = TEXT("AlternativeSelection");
-// static const TCHAR *kUnderline = TEXT("Underline");
-
 static const TCHAR *kShowSystemMenu = TEXT("ShowSystemMenu");
 
+static const TCHAR *kFullRow = TEXT("FullRow");
+static const TCHAR *kShowGrid = TEXT("ShowGrid");
+static const TCHAR *kAlternativeSelection = TEXT("AlternativeSelection");
 // static const TCHAR *kLockMemoryAdd = TEXT("LockMemoryAdd");
-static const TCHAR *kLargePages = TEXT("LargePages");
+static const TCHAR *kLargePagesEnable = TEXT("LargePages");
+static const TCHAR *kSingleClick = TEXT("SingleClick");
+// static const TCHAR *kUnderline = TEXT("Underline");
 
 static const TCHAR *kFlatViewName = TEXT("FlatViewArc");
 // static const TCHAR *kShowDeletedFiles = TEXT("ShowDeleted");
@@ -89,11 +86,16 @@ static bool Read7ZipOption(const TCHAR *value, bool defaultValue)
   return defaultValue;
 }
 
-static void ReadOption(CKey &key, const TCHAR *value, bool &dest)
+static bool ReadOption(const TCHAR *value, bool defaultValue)
 {
-  bool enabled = false;
-  if (key.QueryValue(value, enabled) == ERROR_SUCCESS)
-    dest = enabled;
+  CKey key;
+  if (key.Open(HKEY_CURRENT_USER, kCU_FMPath, KEY_READ) == ERROR_SUCCESS)
+  {
+    bool enabled;
+    if (key.QueryValue(value, enabled) == ERROR_SUCCESS)
+      return enabled;
+  }
+  return defaultValue;
 }
 
 /*
@@ -117,52 +119,37 @@ static bool ReadLmOption(const TCHAR *value, bool defaultValue)
 }
 */
 
-void CFmSettings::Save() const
-{
-  SaveOption(kShowDots, ShowDots);
-  SaveOption(kShowRealFileIcons, ShowRealFileIcons);
-  SaveOption(kFullRow, FullRow);
-  SaveOption(kShowGrid, ShowGrid);
-  SaveOption(kSingleClick, SingleClick);
-  SaveOption(kAlternativeSelection, AlternativeSelection);
-  // SaveOption(kUnderline, Underline);
+void SaveShowDots(bool showDots) { SaveOption(kShowDots, showDots); }
+bool ReadShowDots() { return ReadOption(kShowDots, false); }
 
-  SaveOption(kShowSystemMenu, ShowSystemMenu);
-}
+void SaveShowRealFileIcons(bool show)  { SaveOption(kShowRealFileIcons, show); }
+bool ReadShowRealFileIcons() { return ReadOption(kShowRealFileIcons, false); }
 
-void CFmSettings::Load()
-{
-  ShowDots = false;
-  ShowRealFileIcons = false;
-  FullRow = false;
-  ShowGrid = false;
-  SingleClick = false;
-  AlternativeSelection = false;
-  // Underline = false;
+void Save_ShowSystemMenu(bool show) { SaveOption(kShowSystemMenu, show); }
+bool Read_ShowSystemMenu(){ return ReadOption(kShowSystemMenu, false); }
 
-  ShowSystemMenu = false;
+void SaveFullRow(bool enable) { SaveOption(kFullRow, enable); }
+bool ReadFullRow() { return ReadOption(kFullRow, false); }
 
-  CKey key;
-  if (key.Open(HKEY_CURRENT_USER, kCU_FMPath, KEY_READ) == ERROR_SUCCESS)
-  {
-    ReadOption(key, kShowDots, ShowDots);
-    ReadOption(key, kShowRealFileIcons, ShowRealFileIcons);
-    ReadOption(key, kFullRow, FullRow);
-    ReadOption(key, kShowGrid, ShowGrid);
-    ReadOption(key, kSingleClick, SingleClick);
-    ReadOption(key, kAlternativeSelection, AlternativeSelection);
-    // ReadOption(key, kUnderline, Underline);
+void SaveShowGrid(bool enable) { SaveOption(kShowGrid, enable); }
+bool ReadShowGrid(){ return ReadOption(kShowGrid, false); }
 
-    ReadOption(key, kShowSystemMenu, ShowSystemMenu );
-  }
-}
+void SaveAlternativeSelection(bool enable) { SaveOption(kAlternativeSelection, enable); }
+bool ReadAlternativeSelection(){ return ReadOption(kAlternativeSelection, false); }
 
+void SaveSingleClick(bool enable) { SaveOption(kSingleClick, enable); }
+bool ReadSingleClick(){ return ReadOption(kSingleClick, false); }
+
+/*
+void SaveUnderline(bool enable) { SaveOption(kUnderline, enable); }
+bool ReadUnderline(){ return ReadOption(kUnderline, false); }
+*/
 
 // void SaveLockMemoryAdd(bool enable) { SaveLmOption(kLockMemoryAdd, enable); }
 // bool ReadLockMemoryAdd() { return ReadLmOption(kLockMemoryAdd, true); }
 
-void SaveLockMemoryEnable(bool enable) { Save7ZipOption(kLargePages, enable); }
-bool ReadLockMemoryEnable() { return Read7ZipOption(kLargePages, false); }
+void SaveLockMemoryEnable(bool enable) { Save7ZipOption(kLargePagesEnable, enable); }
+bool ReadLockMemoryEnable() { return Read7ZipOption(kLargePagesEnable, false); }
 
 static CSysString GetFlatViewName(UInt32 panelIndex)
 {
@@ -172,15 +159,7 @@ static CSysString GetFlatViewName(UInt32 panelIndex)
 }
 
 void SaveFlatView(UInt32 panelIndex, bool enable) { SaveOption(GetFlatViewName(panelIndex), enable); }
-
-bool ReadFlatView(UInt32 panelIndex)
-{
-  bool enabled = false;
-  CKey key;
-  if (key.Open(HKEY_CURRENT_USER, kCU_FMPath, KEY_READ) == ERROR_SUCCESS)
-    ReadOption(key, GetFlatViewName(panelIndex), enabled);
-  return enabled;
-}
+bool ReadFlatView(UInt32 panelIndex) { return ReadOption(GetFlatViewName(panelIndex), false); }
 
 /*
 void Save_ShowDeleted(bool enable) { SaveOption(kShowDeletedFiles, enable); }

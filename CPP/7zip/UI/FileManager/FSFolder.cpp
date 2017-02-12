@@ -17,7 +17,7 @@
 #include "FSDrives.h"
 #include "FSFolder.h"
 
-#ifndef UNDER_CE
+#if 0 // #ifndef UNDER_CE
 #include "NetFolder.h"
 #endif
 
@@ -73,6 +73,7 @@ HRESULT CFSFolder::Init(const FString &path /* , IFolderFolder *parentFolder */)
   // _parentFolder = parentFolder;
   _path = path;
 
+#ifdef _WIN32
   _findChangeNotification.FindFirst(_path, false,
         FILE_NOTIFY_CHANGE_FILE_NAME
       | FILE_NOTIFY_CHANGE_DIR_NAME
@@ -93,6 +94,7 @@ HRESULT CFSFolder::Init(const FString &path /* , IFolderFolder *parentFolder */)
     if (!findFile.FindFirst(_path + FCHAR_ANY_MASK, fi))
       return lastError;
   }
+#endif
   return S_OK;
 }
 
@@ -125,7 +127,7 @@ HRESULT CFsFolderStat::Enumerate()
   return S_OK;
 }
 
-#ifndef UNDER_CE
+#if 0 // FIXME #ifndef UNDER_CE
 
 bool MyGetCompressedFileSizeW(CFSTR path, UInt64 &size)
 {
@@ -188,7 +190,7 @@ HRESULT CFSFolder::LoadSubItems(int dirItem, const FString &relPrefix)
         */
       }
       
-      #ifndef UNDER_CE
+      #if 0 // FIXME #ifndef UNDER_CE
 
       fi.Reparse.Free();
       fi.PackSize_Defined = false;
@@ -443,7 +445,7 @@ STDMETHODIMP CFSFolder::GetProperty(UInt32 index, PROPID propID, PROPVARIANT *va
     case kpidName: prop = fs2us(fi.Name); break;
     case kpidSize: if (!fi.IsDir() || fi.FolderStat_Defined) prop = fi.Size; break;
     case kpidPackSize:
-      #ifdef UNDER_CE
+      #if 1 // ifdef UNDER_CE
       prop = fi.Size;
       #else
       if (!fi.PackSize_Defined)
@@ -548,7 +550,7 @@ STDMETHODIMP CFSFolder::GetRawProp(UInt32
   *dataSize = 0;
   *propType = 0;
   
-  #ifndef UNDER_CE
+  #if 0 // #ifndef UNDER_CE
   if (propID == kpidNtReparse)
   {
     const CDirItem &fi = Files[index];
@@ -619,7 +621,7 @@ STDMETHODIMP_(Int32) CFSFolder::CompareItems(UInt32 index1, UInt32 index2, PROPI
     }
     case kpidPackSize:
     {
-      #ifdef UNDER_CE
+      #if 1 // #ifdef UNDER_CE
       return MyCompare(fi1.Size, fi2.Size);
       #else
       // PackSize can be undefined here
@@ -844,6 +846,7 @@ STDMETHODIMP CFSFolder::GetFolderProperty(PROPID propID, PROPVARIANT *value)
 STDMETHODIMP CFSFolder::WasChanged(Int32 *wasChanged)
 {
   bool wasChangedMain = false;
+#ifdef _WIN32
   for (;;)
   {
     if (!_findChangeNotification.IsHandleAllocated())
@@ -862,6 +865,7 @@ STDMETHODIMP CFSFolder::WasChanged(Int32 *wasChanged)
     else
       break;
   }
+#endif
   *wasChanged = BoolToInt(wasChangedMain);
   return S_OK;
 }

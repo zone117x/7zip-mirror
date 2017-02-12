@@ -14,16 +14,28 @@ static const char *kEOFMessage = "Unexpected end of input stream";
 static const char *kReadErrorMessage  ="Error reading input stream";
 static const char *kIllegalCharMessage = "Illegal character in input stream";
 
-static LPCTSTR kFileOpenMode = TEXT("r");
+// static LPCTSTR kFileOpenMode = TEXT("r");
 
-extern int g_CodePage;
+// extern int g_CodePage;
+
+#ifdef _UNICODE
+#define NEED_NAME_WINDOWS_TO_UNIX
+#include "myPrivate.h"
+#endif
 
 CStdInStream g_StdIn(stdin);
 
 bool CStdInStream::Open(LPCTSTR fileName) throw()
 {
   Close();
-  _stream = _tfopen(fileName, kFileOpenMode);
+//  _stream = _tfopen(fileName, kFileOpenMode);
+#ifdef _UNICODE
+  AString aStr = UnicodeStringToMultiByte(fileName, CP_ACP); // FIXME
+  const char * name = nameWindowToUnix(aStr);
+#else
+  const char * name = nameWindowToUnix(fileName);
+#endif
+  _stream = fopen(name, "r");
   _streamIsOpen = (_stream != 0);
   return _streamIsOpen;
 }
@@ -58,6 +70,7 @@ AString CStdInStream::ScanStringUntilNewLine(bool allowEOF)
   return s;
 }
 
+#ifdef _WIN32
 UString CStdInStream::ScanUStringUntilNewLine()
 {
   AString s = ScanStringUntilNewLine(true);
@@ -71,6 +84,18 @@ UString CStdInStream::ScanUStringUntilNewLine()
     dest = MultiByteToUnicodeString(s, (UINT)codePage);
   return dest;
 }
+#else
+
+#ifndef ENV_HAVE_GETPASS
+UString CStdInStream::ScanUStringUntilNewLine()
+{
+  AString s = ScanStringUntilNewLine(true);
+  UString dest = MultiByteToUnicodeString(s, (UINT)-1);
+  return dest;
+}
+#endif
+
+#endif
 
 void CStdInStream::ReadToString(AString &resultString)
 {

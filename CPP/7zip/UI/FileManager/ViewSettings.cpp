@@ -3,7 +3,7 @@
 #include "StdAfx.h"
 
 #include "../../../../C/CpuArch.h"
- 
+
 #include "../../../Common/IntToString.h"
 #include "../../../Common/StringConvert.h"
 
@@ -97,8 +97,6 @@ void CListViewInfo::Read(const UString &id)
   Get32(buf + 4, SortID);
   GetBool(buf + 8, Ascending);
 
-  IsLoaded = true;
-
   size -= kListViewHeaderSize;
   if (size % kColumnInfoSize != 0)
     return;
@@ -134,6 +132,7 @@ struct CPanelsInfo
 static const UInt32 kWindowPositionHeaderSize = 5 * 4;
 static const UInt32 kPanelsInfoHeaderSize = 3 * 4;
 
+#ifdef _WIN32
 void CWindowInfo::Save() const
 {
   NSynchronization::CCriticalSectionLock lock(g_CS);
@@ -190,6 +189,7 @@ void CWindowInfo::Read(bool &windowPosDefined, bool &panelInfoDefined)
   }
   return;
 }
+#endif
 
 
 void SaveUi32Val(const TCHAR *name, UInt32 value)

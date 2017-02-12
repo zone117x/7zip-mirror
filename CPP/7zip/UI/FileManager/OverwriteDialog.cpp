@@ -80,6 +80,7 @@ void COverwriteDialog::SetFileInfoControl(int textID, int iconID,
   control.Init(*this, textID);
   control.SetText(s);
 
+#if _WIN32
   SHFILEINFO shellFileInfo;
   if (::SHGetFileInfo(
       GetSystemString(fileInfo.Name), FILE_ATTRIBUTE_NORMAL, &shellFileInfo,
@@ -89,6 +90,7 @@ void COverwriteDialog::SetFileInfoControl(int textID, int iconID,
     staticContol.Attach(GetItem(iconID));
     staticContol.SetIcon(shellFileInfo.hIcon);
   }
+#endif
 }
 
 bool COverwriteDialog::OnInit()

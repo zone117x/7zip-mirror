@@ -3,11 +3,7 @@
 #ifndef __SYS_ICON_UTILS_H
 #define __SYS_ICON_UTILS_H
 
-#include "../../../Common/MyWindows.h"
-
-#include <commctrl.h>
-
-#include "../../../Common/MyString.h"
+#include "Common/MyString.h"
 
 struct CExtIconPair
 {
@@ -50,6 +46,7 @@ public:
 DWORD_PTR GetRealIconIndex(CFSTR path, DWORD attrib, int &iconIndex);
 int GetIconIndexForCSIDL(int csidl);
 
+#ifdef WIN32
 inline HIMAGELIST GetSysImageList(bool smallIcons)
 {
   SHFILEINFO shellInfo;
@@ -58,5 +55,6 @@ inline HIMAGELIST GetSysImageList(bool smallIcons)
       &shellInfo, sizeof(shellInfo),
       SHGFI_USEFILEATTRIBUTES | SHGFI_SYSICONINDEX | (smallIcons ? SHGFI_SMALLICON : SHGFI_ICON));
 }
+#endif
 
 #endif

@@ -2,8 +2,7 @@
 
 #include "StdAfx.h"
 
-#include <Windowsx.h>
-// #include <stdio.h>
+// #include <Windowsx.h>
 
 #include "../../../Common/IntToString.h"
 #include "../../../Common/StringConvert.h"
@@ -42,7 +41,7 @@ extern bool g_IsNT;
 static const UINT_PTR kTimerID = 1;
 static const UINT kTimerElapse = 1000;
 
-static DWORD kStyles[4] = { LVS_ICON, LVS_SMALLICON, LVS_LIST, LVS_REPORT };
+// FIXME static DWORD kStyles[4] = { LVS_ICON, LVS_SMALLICON, LVS_LIST, LVS_REPORT };
 
 // static const int kCreateFolderID = 101;
 
@@ -53,8 +52,8 @@ void CPanel::Release()
 {
   // It's for unloading COM dll's: don't change it.
   CloseOpenFolders();
-  _sevenZipContextMenu.Release();
-  _systemContextMenu.Release();
+  // FIXME _sevenZipContextMenu.Release();
+  // FIXME _systemContextMenu.Release();
 }
 
 CPanel::~CPanel()
@@ -64,8 +63,12 @@ CPanel::~CPanel()
 
 HWND CPanel::GetParent()
 {
+#ifdef _WIN32
   HWND h = CWindow2::GetParent();
   return (h == 0) ? _mainWindow : h;
+#else
+  return 0;
+#endif
 }
 
 static LPCWSTR kClassName = L"7-Zip::Panel";
@@ -75,7 +78,6 @@ HRESULT CPanel::Create(HWND mainWindow, HWND parentWindow, UINT id,
     const UString &currentFolderPrefix,
     const UString &arcFormat,
     CPanelCallback *panelCallback, CAppState *appState,
-    bool needOpenArc,
     bool &archiveIsOpened, bool &encrypted)
 {
   _mainWindow = mainWindow;
@@ -102,15 +104,19 @@ HRESULT CPanel::Create(HWND mainWindow, HWND parentWindow, UINT id,
 
   RINOK(BindToPath(cfp, arcFormat, archiveIsOpened, encrypted));
 
-  if (needOpenArc && !archiveIsOpened)
-    return S_OK;
-
+#ifdef _WIN32
   if (!CreateEx(0, kClassName, 0, WS_CHILD | WS_VISIBLE,
       0, 0, _xSize, 260,
       parentWindow, (HMENU)(UINT_PTR)id, g_hInstance))
     return E_FAIL;
-  PanelCreated = true;
-
+#else
+  {
+  	// printf("WARNING CPanel::Create => CreateEx\n");
+  	// this->OnCreate(0);
+  	extern void registerWindow2(int baseID,NWindows::NControl::CWindow2 *w);
+	registerWindow2(_baseID,this);
+  }
+#endif
   return S_OK;
 }
 
@@ -133,6 +139,7 @@ LRESULT CPanel::OnMessage(UINT message, WPARAM wParam, LPARAM lParam)
       if (_processStatusBar)
         Refresh_StatusBar();
       return 0;
+#ifdef _WIN32
     #ifdef UNDER_CE
     case kRefresh_HeaderComboBox:
       LoadFullPathAndShow();
@@ -150,12 +157,14 @@ LRESULT CPanel::OnMessage(UINT message, WPARAM wParam, LPARAM lParam)
       CompressDropFiles(HDROP(wParam));
       return 0;
     */
+#endif
   }
   return CWindow2::OnMessage(message, wParam, lParam);
 }
 
 LRESULT CMyListView::OnMessage(UINT message, WPARAM wParam, LPARAM lParam)
 {
+#ifdef _WIN32
   if (message == WM_CHAR)
   {
     UINT scanCode = (UINT)((lParam >> 16) & 0xFF);
@@ -237,6 +246,7 @@ LRESULT CMyListView::OnMessage(UINT message, WPARAM wParam, LPARAM lParam)
     _panel->_lastFocusedIsList = true;
     _panel->_panelCallback->PanelWasFocused();
   }
+#endif
   return CListView2::OnMessage(message, wParam, lParam);
 }
 
@@ -256,6 +266,7 @@ LRESULT CMyComboBox::OnMessage(UINT message, WPARAM wParam, LPARAM lParam)
 }
 */
 
+#ifdef _WIN32
 #ifndef UNDER_CE
 
 static LRESULT APIENTRY ComboBoxEditSubclassProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
@@ -532,7 +543,7 @@ bool CPanel::OnCreate(CREATESTRUCT * /* createStruct */)
   _statusBar.Create(WS_CHILD | WS_VISIBLE, L"Status", (*this), _statusBarID);
   // _statusBar2.Create(WS_CHILD | WS_VISIBLE, L"Status", (*this), _statusBarID + 1);
 
-  const int sizes[] = {220, 320, 420, -1};
+  int sizes[] = {160, 250, 350, -1};
   _statusBar.SetParts(4, sizes);
   // _statusBar2.SetParts(5, sizes);
 
@@ -549,6 +560,98 @@ bool CPanel::OnCreate(CREATESTRUCT * /* createStruct */)
   
   return true;
 }
+#else
+bool CPanel::OnCreate(CREATESTRUCT * /* createStruct */)
+{
+   printf("WARNING CPanel::OnCreate\n");
+  _sortID = kpidName;
+  _ascending = true;
+  _lastFocusedIsList = true;
+
+  extern HWND g_HWND;
+  HWND w = GetDlgItem(g_HWND, _comboBoxID);
+  if (w == 0) 
+  {
+	  printf("Can't find id=%d\n",_comboBoxID);
+	  return false;
+  }
+  printf("CPanel::OnCreate : _headerComboBox.Attach(%p)\n",w);
+  _headerComboBox.Attach(w);
+
+  w = GetDlgItem(g_HWND, _statusBarID);
+  if (w == 0) 
+  {
+	  printf("Can't find id=%d\n",_statusBarID);
+	  return false;
+  }
+  printf("CPanel::OnCreate : _statusBar.Attach(%p)\n",w);
+  _statusBar.Attach(w);
+
+  w = GetDlgItem(g_HWND, _baseID + 1);
+  if (w == 0) 
+  {
+	  printf("Can't find id=%d\n",_baseID + 1);
+	  return false;
+  }
+  printf("CPanel::OnCreate : _listView.Attach(%p)\n",w);
+  _listView.Attach(w);
+  
+  _listView.SetUnicodeFormat(true);
+
+  // _listView.SetUserDataLongPtr(LONG_PTR(&_listView));
+  _listView._panel = this;
+
+  // FIXME _listView.SetImageList(GetSysImageList(true), LVSIL_SMALL);
+  // FIXME _listView.SetImageList(GetSysImageList(false), LVSIL_NORMAL);
+
+  // FIXME SetExtendedStyle();
+
+  // FIXME _listView.Show(SW_SHOW);
+  // FIXME _listView.InvalidateRect(NULL, true);
+  _listView.Update();
+  
+  /* FIXME
+  _headerToolBar.Attach(::CreateToolbarEx ((*this), toolbarStyle,
+      _baseID + 2, 11,
+      (HINSTANCE)HINST_COMMCTRL,
+      IDB_VIEW_SMALL_COLOR,
+      (LPCTBBUTTON)&tbb, sizeof(tbb) / sizeof(tbb[0]),
+      0, 0, 0, 0, sizeof (TBBUTTON)));
+      */
+
+  /* FIXME
+  _headerComboBox.CreateEx(0, WC_COMBOBOXEXW, NULL,
+    WS_BORDER | WS_VISIBLE |WS_CHILD | CBS_DROPDOWN | CBS_AUTOHSCROLL,
+      0, 0, 100, 520,
+      ((_headerReBar == 0) ? HWND(*this) : _headerToolBar),
+      (HMENU)(UINT_PTR)(_comboBoxID),
+      g_hInstance, NULL);
+  _headerComboBox.SendMessage(CBEM_SETUNICODEFORMAT, (WPARAM)(BOOL)TRUE, 0);
+
+  _headerComboBox.SetImageList(GetSysImageList(true));
+
+  _headerComboBox.SetExtendedStyle(CBES_EX_PATHWORDBREAKPROC, CBES_EX_PATHWORDBREAKPROC);
+  */
+
+  // FIXME _comboBoxEdit.Attach(_headerComboBox.GetEditControl());
+
+  _comboBoxEdit._panel = this;
+
+  // FIXME if (_headerReBar) ...
+
+  // _statusBar.Create(WS_CHILD | WS_VISIBLE, L"Status", (*this), _statusBarID);
+
+  // int sizes[] = {150, 250, 350, -1};
+  // _statusBar.SetParts(4, sizes);
+
+  // SetTimer(kTimerID, kTimerElapse);
+
+  // InitListCtrl();
+  RefreshListCtrl();
+  
+  return true;
+}
+#endif
 
 void CPanel::OnDestroy()
 {
@@ -556,6 +659,7 @@ void CPanel::OnDestroy()
   CWindow2::OnDestroy();
 }
 
+#ifdef _WIN32
 void CPanel::ChangeWindowSize(int xSize, int ySize)
 {
   if ((HWND)*this == 0)
@@ -619,62 +723,31 @@ bool CPanel::OnNotifyReBar(LPNMHDR header, LRESULT & /* result */)
   }
   return false;
 }
-
-/*
-UInt32 g_OnNotify = 0;
-UInt32 g_LVIF_TEXT = 0;
-UInt32 g_Time = 0;
-
-void Print_OnNotify(const char *name)
-{
-  char s[256];
-  DWORD tim = GetTickCount();
-  sprintf(s,
-      "Time = %7u ms, Notify = %9u, TEXT = %9u, %s",
-      tim - g_Time,
-      g_OnNotify,
-      g_LVIF_TEXT,
-      name);
-  g_Time = tim;
-  OutputDebugStringA(s);
-  g_OnNotify = 0;
-  g_LVIF_TEXT = 0;
-}
-*/
+#endif
 
 bool CPanel::OnNotify(UINT /* controlID */, LPNMHDR header, LRESULT &result)
 {
-  /*
-  g_OnNotify++;
-
-  if (header->hwndFrom == _listView)
-  {
-    if (header->code == LVN_GETDISPINFOW)
-    {
-      LV_DISPINFOW *dispInfo = (LV_DISPINFOW *)header;
-        if ((dispInfo->item.mask & LVIF_TEXT))
-          g_LVIF_TEXT++;
-    }
-  }
-  */
-
   if (!_processNotify)
     return false;
-
   if (header->hwndFrom == _headerComboBox)
     return OnNotifyComboBox(header, result);
+#ifdef _WIN32
   else if (header->hwndFrom == _headerReBar)
     return OnNotifyReBar(header, result);
+#endif
   else if (header->hwndFrom == _listView)
     return OnNotifyList(header, result);
+#ifdef _WIN32
   else if (::GetParent(header->hwndFrom) == _listView &&
       header->code == NM_RCLICK)
     return OnRightClick((MY_NMLISTVIEW_NMITEMACTIVATE *)header, result);
+#endif
   return false;
 }
 
 bool CPanel::OnCommand(int code, int itemID, LPARAM lParam, LRESULT &result)
 {
+ printf("CPanel::OnCommand(code=%d,itemID=%d)\n",code,itemID);
   if (itemID == kParentFolderID)
   {
     OpenParentFolder();
@@ -703,8 +776,10 @@ void CPanel::MessageBox(LPCWSTR message, LPCWSTR caption)
   { ::MessageBoxW((HWND)*this, message, caption, MB_OK | MB_ICONSTOP); }
 void CPanel::MessageBox(LPCWSTR message)
   { MessageBox(message, L"7-Zip"); }
+/* FIXME
 void CPanel::MessageBoxWarning(LPCWSTR message)
   { ::MessageBoxW(NULL, message, L"7-Zip", MB_OK | MB_ICONWARNING); }
+*/
 void CPanel::MessageBoxMyError(LPCWSTR message)
   { MessageBox(message, L"7-Zip"); }
 
@@ -746,8 +821,8 @@ void CPanel::SetFocusToLastRememberedItem()
 {
   if (_lastFocusedIsList)
     SetFocusToList();
-  else
-    _headerComboBox.SetFocus();
+  // FIXME else
+    // FIXME _headerComboBox.SetFocus();
 }
 
 UString CPanel::GetFolderTypeID() const
@@ -787,7 +862,7 @@ UString CPanel::GetDriveOrNetworkPrefix() const
   if (!IsFSFolder())
     return UString();
   UString drive = GetFsPath();
-  drive.DeleteFrom(NFile::NName::GetRootPrefixSize(drive));
+  // FIXME drive.DeleteFrom(NFile::NName::GetRootPrefixSize(drive));
   return drive;
 }
 
@@ -796,6 +871,7 @@ void CPanel::SetListViewMode(UInt32 index)
   if (index >= 4)
     return;
   _ListViewMode = index;
+#ifdef _WIN32
   DWORD oldStyle = (DWORD)_listView.GetStyle();
   DWORD newStyle = kStyles[index];
 
@@ -811,7 +887,7 @@ void CPanel::SetListViewMode(UInt32 index)
       );
   OutputDebugStringA(s);
   */
-
+#endif
 }
 
 void CPanel::ChangeFlatMode()
@@ -838,8 +914,8 @@ void CPanel::Change_ShowNtfsStrems_Mode()
 
 void CPanel::Post_Refresh_StatusBar()
 {
-  if (_processStatusBar)
-    PostMsg(kRefresh_StatusBar);
+  // FIXME if (_processStatusBar)
+    // FIXME PostMessage(kRefresh_StatusBar);
 }
 
 void CPanel::AddToArchive()
@@ -878,20 +954,18 @@ void CPanel::AddToArchive()
   // KillSelection();
 }
 
-// function from ContextMenu.cpp
-UString GetSubFolderNameForExtract(const UString &arcPath);
-
-static UString GetSubFolderNameForExtract2(const UString &arcPath)
+static UString GetSubFolderNameForExtract(const UString &arcPath)
 {
-  int slashPos = arcPath.ReverseFind_PathSepar();
-  UString s;
-  UString name = arcPath;
-  if (slashPos >= 0)
+  UString s = arcPath;
+  int slashPos = s.ReverseFind_PathSepar();
+  int dotPos = s.ReverseFind_Dot();
+  if (dotPos <= slashPos + 1)
+    s += L'~';
+  else
   {
-    s = arcPath.Left(slashPos + 1);
-    name = arcPath.Ptr(slashPos + 1);
+    s.DeleteFrom(dotPos);
+    s.TrimRight();
   }
-  s += GetSubFolderNameForExtract(name);
   return s;
 }
 
@@ -931,7 +1005,7 @@ void CPanel::ExtractArchives()
   
   UString outFolder = GetFsPath();
   if (indices.Size() == 1)
-    outFolder += GetSubFolderNameForExtract2(GetItemRelPath(indices[0]));
+    outFolder += GetSubFolderNameForExtract(GetItemRelPath(indices[0]));
   else
     outFolder += L'*';
   outFolder.Add_PathSepar();

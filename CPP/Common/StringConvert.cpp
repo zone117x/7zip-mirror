@@ -3,311 +3,218 @@
 #include "StdAfx.h"
 
 #include "StringConvert.h"
-
-#ifndef _WIN32
-#include <stdlib.h>
-#endif
-
-static const char k_DefultChar = '_';
-
-#ifdef _WIN32
-
-/*
-MultiByteToWideChar(CodePage, DWORD dwFlags,
-    LPCSTR lpMultiByteStr, int cbMultiByte,
-    LPWSTR lpWideCharStr, int cchWideChar)
-
-  if (cbMultiByte == 0)
-    return: 0. ERR: ERROR_INVALID_PARAMETER
-
-  if (cchWideChar == 0)
-    return: the required buffer size in characters.
-
-  if (supplied buffer size was not large enough)
-    return: 0. ERR: ERROR_INSUFFICIENT_BUFFER
-    The number of filled characters in lpWideCharStr can be smaller than cchWideChar (if last character is complex)
-
-  If there are illegal characters:
-    if MB_ERR_INVALID_CHARS is set in dwFlags:
-      - the function stops conversion on illegal character.
-      - Return: 0. ERR: ERROR_NO_UNICODE_TRANSLATION.
-    
-    if MB_ERR_INVALID_CHARS is NOT set in dwFlags:
-      before Vista: illegal character is dropped (skipped). WinXP-64: GetLastError() returns 0.
-      in Vista+:    illegal character is not dropped (MSDN). Undocumented: illegal
-                    character is converted to U+FFFD, which is REPLACEMENT CHARACTER.
-*/
-
-
-void MultiByteToUnicodeString2(UString &dest, const AString &src, UINT codePage)
+extern "C"
 {
-  dest.Empty();
-  if (src.IsEmpty())
-    return;
-  {
-    /*
-    wchar_t *d = dest.GetBuf(src.Len());
-    const char *s = (const char *)src;
-    unsigned i;
-    
-    for (i = 0;;)
-    {
-      Byte c = (Byte)s[i];
-      if (c >= 0x80 || c == 0)
-        break;
-      d[i++] = (wchar_t)c;
-    }
-
-    if (i != src.Len())
-    {
-      unsigned len = MultiByteToWideChar(codePage, 0, s + i,
-          src.Len() - i, d + i,
-          src.Len() + 1 - i);
-      if (len == 0)
-        throw 282228;
-      i += len;
-    }
-
-    d[i] = 0;
-    dest.ReleaseBuf_SetLen(i);
-    */
-    unsigned len = MultiByteToWideChar(codePage, 0, src, src.Len(), NULL, 0);
-    if (len == 0)
-    {
-      if (GetLastError() != 0)
-        throw 282228;
-    }
-    else
-    {
-      len = MultiByteToWideChar(codePage, 0, src, src.Len(), dest.GetBuf(len), len);
-      if (len == 0)
-        throw 282228;
-      dest.ReleaseBuf_SetEnd(len);
-    }
-  }
+int global_use_utf16_conversion = 0;
 }
 
-/*
-  int WideCharToMultiByte(
-      UINT CodePage, DWORD dwFlags,
-      LPCWSTR lpWideCharStr, int cchWideChar,
-      LPSTR lpMultiByteStr, int cbMultiByte,
-      LPCSTR lpDefaultChar, LPBOOL lpUsedDefaultChar);
+#ifdef LOCALE_IS_UTF8
 
-if (lpDefaultChar == NULL),
-  - it uses system default value.
+#ifdef __APPLE_CC__
+#define UInt32  macUIn32
+#include <CoreFoundation/CoreFoundation.h>
+#undef UInt32
 
-if (CodePage == CP_UTF7 || CodePage == CP_UTF8)
-  if (lpDefaultChar != NULL || lpUsedDefaultChar != NULL)
-    return: 0. ERR: ERROR_INVALID_PARAMETER.
-
-The function operates most efficiently, if (lpDefaultChar == NULL && lpUsedDefaultChar == NULL)
-
-*/
-
-static void UnicodeStringToMultiByte2(AString &dest, const UString &src, UINT codePage, char defaultChar, bool &defaultCharWasUsed)
+UString MultiByteToUnicodeString(const AString &srcString, UINT codePage)
 {
-  dest.Empty();
-  defaultCharWasUsed = false;
-  if (src.IsEmpty())
-    return;
+  if (!srcString.IsEmpty())
   {
-    /*
-    unsigned numRequiredBytes = src.Len() * 2;
-    char *d = dest.GetBuf(numRequiredBytes);
-    const wchar_t *s = (const wchar_t *)src;
-    unsigned i;
+    UString resultString;
+    const char * path = &srcString[0];
+
+// FIXME    size_t n = strlen(path);
+
+    CFStringRef cfpath = CFStringCreateWithCString(NULL,path,kCFStringEncodingUTF8);
+
+    if (cfpath)
+    {
+
+       CFMutableStringRef cfpath2 = CFStringCreateMutableCopy(NULL,0,cfpath);
+       CFRelease(cfpath);
+       CFStringNormalize(cfpath2,kCFStringNormalizationFormC);
     
-    for (i = 0;;)
-    {
-      wchar_t c = s[i];
-      if (c >= 0x80 || c == 0)
-        break;
-      d[i++] = (char)c;
+       size_t n = CFStringGetLength(cfpath2);
+       for(size_t i =   0 ; i< n ;i++) {
+         UniChar uc = CFStringGetCharacterAtIndex(cfpath2,i);
+         resultString += (wchar_t)uc; // FIXME
+       }
+
+       CFRelease(cfpath2);  
+
+       return resultString;
     }
+  }
+
+  UString resultString;
+  for (int i = 0; i < srcString.Len(); i++)
+    resultString += wchar_t(srcString[i] & 255);
+
+  return resultString;
+}
+
+AString UnicodeStringToMultiByte(const UString &srcString, UINT codePage)
+{
+  if (!srcString.IsEmpty())
+  {
+    const wchar_t * wcs = &srcString[0];
+    char utf8[4096];
+    UniChar unipath[4096];
+
+    size_t n = wcslen(wcs);
+
+    for(size_t i =   0 ; i<= n ;i++) {
+      unipath[i] = wcs[i];
+    }
+
+    CFStringRef cfpath = CFStringCreateWithCharacters(NULL,unipath,n);
+
+    CFMutableStringRef cfpath2 = CFStringCreateMutableCopy(NULL,0,cfpath);
+    CFRelease(cfpath);
+    CFStringNormalize(cfpath2,kCFStringNormalizationFormD);
     
-    if (i != src.Len())
-    {
-      BOOL defUsed = FALSE;
-      defaultChar = defaultChar;
+    CFStringGetCString(cfpath2,(char *)utf8,4096,kCFStringEncodingUTF8);
 
-      bool isUtf = (codePage == CP_UTF8 || codePage == CP_UTF7);
-      unsigned len = WideCharToMultiByte(codePage, 0, s + i, src.Len() - i,
-          d + i, numRequiredBytes + 1 - i,
-          (isUtf ? NULL : &defaultChar),
-          (isUtf ? NULL : &defUsed));
-      defaultCharWasUsed = (defUsed != FALSE);
-      if (len == 0)
-        throw 282229;
-      i += len;
-    }
+    CFRelease(cfpath2);  
 
-    d[i] = 0;
-    dest.ReleaseBuf_SetLen(i);
-    */
+    return AString(utf8);
+  }
 
-    /*
-    if (codePage != CP_UTF7)
-    {
-      const wchar_t *s = (const wchar_t *)src;
-      unsigned i;
-      for (i = 0;; i++)
-      {
-        wchar_t c = s[i];
-        if (c >= 0x80 || c == 0)
-          break;
-      }
-      
-      if (s[i] == 0)
-      {
-        char *d = dest.GetBuf(src.Len());
-        for (i = 0;;)
-        {
-          wchar_t c = s[i];
-          if (c == 0)
-            break;
-          d[i++] = (char)c;
+  AString resultString;
+  for (int i = 0; i < srcString.Len(); i++)
+  {
+    if (srcString[i] >= 256) resultString += '?';
+    else                     resultString += char(srcString[i]);
+  }
+  return resultString;
+}
+
+#else /* __APPLE_CC__ */
+
+
+#include "UTFConvert.h"
+
+UString MultiByteToUnicodeString(const AString &srcString, UINT codePage)
+{
+  if ((global_use_utf16_conversion) && (!srcString.IsEmpty()))
+  {
+    UString resultString;
+    bool bret = ConvertUTF8ToUnicode(srcString,resultString);
+    if (bret) return resultString;
+  }
+
+  UString resultString;
+  for (int i = 0; i < srcString.Len(); i++)
+    resultString += wchar_t(srcString[i] & 255);
+
+  return resultString;
+}
+
+AString UnicodeStringToMultiByte(const UString &srcString, UINT codePage)
+{
+  if ((global_use_utf16_conversion) && (!srcString.IsEmpty()))
+  {
+    AString resultString;
+    ConvertUnicodeToUTF8(srcString,resultString);
+    return resultString;
+  }
+
+  AString resultString;
+  for (int i = 0; i < srcString.Len(); i++)
+  {
+    if (srcString[i] >= 256) resultString += '?';
+    else                     resultString += char(srcString[i]);
+  }
+  return resultString;
+}
+
+#endif /* __APPLE_CC__ */
+
+#else /* LOCALE_IS_UTF8 */
+
+UString MultiByteToUnicodeString(const AString &srcString, UINT /* codePage */ )
+{
+#ifdef ENV_HAVE_MBSTOWCS
+  if ((global_use_utf16_conversion) && (!srcString.IsEmpty()))
+  {
+    UString resultString;
+    int numChars = mbstowcs(resultString.GetBuf(srcString.Len()),srcString,srcString.Len()+1);
+    if (numChars >= 0) {
+        resultString.ReleaseBuf_SetEnd(numChars);
+
+#if WCHAR_MAX > 0xffff
+      for (int i = numChars; i >= 0; i--) {
+        if (resultString[i] > 0xffff) {
+          wchar_t c = resultString[i] - 0x10000;
+          resultString.Delete(i);
+          wchar_t texts[]= { ((c >> 10) & 0x3ff) + 0xd800,  (c & 0x3ff) + 0xdc00 , 0 };
+          resultString.Insert(i, texts);
+          numChars++;
         }
-        d[i] = 0;
-        dest.ReleaseBuf_SetLen(i);
-        return;
       }
-    }
-    */
+#endif
 
-    unsigned len = WideCharToMultiByte(codePage, 0, src, src.Len(), NULL, 0, NULL, NULL);
-    if (len == 0)
-    {
-      if (GetLastError() != 0)
-        throw 282228;
-    }
-    else
-    {
-      BOOL defUsed = FALSE;
-      bool isUtf = (codePage == CP_UTF8 || codePage == CP_UTF7);
-      // defaultChar = defaultChar;
-      len = WideCharToMultiByte(codePage, 0, src, src.Len(),
-          dest.GetBuf(len), len,
-          (isUtf ? NULL : &defaultChar),
-          (isUtf ? NULL : &defUsed)
-          );
-      if (!isUtf)
-        defaultCharWasUsed = (defUsed != FALSE);
-      if (len == 0)
-        throw 282228;
-      dest.ReleaseBuf_SetEnd(len);
+      return resultString;
     }
   }
-}
-
-/*
-#ifndef UNDER_CE
-AString SystemStringToOemString(const CSysString &src)
-{
-  AString dest;
-  const unsigned len = src.Len() * 2;
-  CharToOem(src, dest.GetBuf(len));
-  dest.ReleaseBuf_CalcLen(len);
-  return dest;
-}
 #endif
-*/
 
+  UString resultString;
+  for (int i = 0; i < srcString.Len(); i++)
+    resultString += wchar_t(srcString[i] & 255);
+
+  return resultString;
+}
+
+AString UnicodeStringToMultiByte(const UString &src, UINT /* codePage */ )
+{
+#ifdef ENV_HAVE_WCSTOMBS
+#if WCHAR_MAX > 0xffff
+  UString srcString(src);
+  for (int i = 0; i < srcString.Len(); i++) {
+    if ((0xd800 <= srcString[i] && srcString[i] <= 0xdbff) && ((i + 1) < srcString.Len()) &&
+        (0xdc00 <= srcString[i + 1] && srcString[i + 1] < 0xE000)) {
+      wchar_t c = (((srcString[i] - 0xd800) << 10) | (srcString[i + 1] - 0xdc00)) + 0x10000;
+      srcString.Delete(i, 2);
+      srcString.Insert(i, c);
+    }
+  }
 #else
-
-void MultiByteToUnicodeString2(UString &dest, const AString &src, UINT /* codePage */)
-{
-  dest.Empty();
-  if (src.IsEmpty())
-    return;
-
-  size_t limit = ((size_t)src.Len() + 1) * 2;
-  wchar_t *d = dest.GetBuf((unsigned)limit);
-  size_t len = mbstowcs(d, src, limit);
-  if (len != (size_t)-1)
-  {
-    dest.ReleaseBuf_SetEnd((unsigned)len);
-    return;
-  }
-  
-  {
-    unsigned i;
-    const char *s = (const char *)src;
-    for (i = 0;;)
-    {
-      Byte c = (Byte)s[i];
-      if (c == 0)
-        break;
-      d[i++] = (wchar_t)c;
-    }
-    d[i] = 0;
-    dest.ReleaseBuf_SetLen(i);
-  }
-}
-
-static void UnicodeStringToMultiByte2(AString &dest, const UString &src, UINT /* codePage */, char defaultChar, bool &defaultCharWasUsed)
-{
-  dest.Empty();
-  defaultCharWasUsed = false;
-  if (src.IsEmpty())
-    return;
-
-  size_t limit = ((size_t)src.Len() + 1) * 6;
-  char *d = dest.GetBuf((unsigned)limit);
-  size_t len = wcstombs(d, src, limit);
-  if (len != (size_t)-1)
-  {
-    dest.ReleaseBuf_SetEnd((unsigned)len);
-    return;
-  }
-
-  {
-    const wchar_t *s = (const wchar_t *)src;
-    unsigned i;
-    for (i = 0;;)
-    {
-      wchar_t c = s[i];
-      if (c == 0)
-        break;
-      if (c >= 0x100)
-      {
-        c = defaultChar;
-        defaultCharWasUsed = true;
-      }
-      d[i++] = (char)c;
-    }
-    d[i] = 0;
-    dest.ReleaseBuf_SetLen(i);
-  }
-}
-
+  const UString &srcString = src;
 #endif
 
+  if ((global_use_utf16_conversion) && (!srcString.IsEmpty()))
+  {
+    AString resultString;
+    int numRequiredBytes = srcString.Len() * 6+1;
+    int numChars = wcstombs(resultString.GetBuf(numRequiredBytes),srcString,numRequiredBytes);
+    if (numChars >= 0) {
+      resultString.ReleaseBuf_SetEnd(numChars);
+      return resultString;
+    }
+  }
+#else
+  const UString &srcString = src;
+#endif
 
-UString MultiByteToUnicodeString(const AString &src, UINT codePage)
-{
-  UString dest;
-  MultiByteToUnicodeString2(dest, src, codePage);
-  return dest;
+  AString resultString;
+  for (int i = 0; i < srcString.Len(); i++)
+  {
+    if (srcString[i] >= 256) resultString += '?';
+    else                     resultString += char(srcString[i]);
+  }
+  return resultString;
 }
 
-void UnicodeStringToMultiByte2(AString &dest, const UString &src, UINT codePage)
+#endif /* LOCALE_IS_UTF8 */
+
+
+void MultiByteToUnicodeString2(UString &dest, const AString &srcString, UINT codePage)
 {
-  bool defaultCharWasUsed;
-  UnicodeStringToMultiByte2(dest, src, codePage, k_DefultChar, defaultCharWasUsed);
+  dest = MultiByteToUnicodeString(srcString,codePage);
 }
 
-AString UnicodeStringToMultiByte(const UString &src, UINT codePage, char defaultChar, bool &defaultCharWasUsed)
+void UnicodeStringToMultiByte2(AString &dest, const UString &srcString, UINT codePage)
 {
-  AString dest;
-  UnicodeStringToMultiByte2(dest, src, codePage, defaultChar, defaultCharWasUsed);
-  return dest;
+  dest = UnicodeStringToMultiByte(srcString,codePage);
 }
 
-AString UnicodeStringToMultiByte(const UString &src, UINT codePage)
-{
-  AString dest;
-  bool defaultCharWasUsed;
-  UnicodeStringToMultiByte2(dest, src, codePage, k_DefultChar, defaultCharWasUsed);
-  return dest;
-}

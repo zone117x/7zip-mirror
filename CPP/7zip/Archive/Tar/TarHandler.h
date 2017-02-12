@@ -37,7 +37,6 @@ private:
   UInt64 _headersSize;
   bool _phySizeDefined;
   EErrorType _error;
-  bool _warning;
   bool _isArc;
 
   // bool _isSparse;

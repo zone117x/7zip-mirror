@@ -2968,7 +2968,7 @@ HRESULT CArc::OpenStreamOrFile(COpenOptions &op)
   }
   else if (!op.stream)
   {
-    fileStreamSpec = new CInFileStream;
+    fileStreamSpec = new CInFileStream(true);
     fileStream = fileStreamSpec;
     Path = filePath;
     if (!fileStreamSpec->Open(us2fs(Path)))
@@ -3388,7 +3388,7 @@ HRESULT CArchiveLink::ReOpen(COpenOptions &op)
   }
 
 
-  CInFileStream *fileStreamSpec = new CInFileStream;
+  CInFileStream *fileStreamSpec = new CInFileStream(true);
   CMyComPtr<IInStream> stream(fileStreamSpec);
   if (!fileStreamSpec->Open(us2fs(op.filePath)))
     return GetLastError();

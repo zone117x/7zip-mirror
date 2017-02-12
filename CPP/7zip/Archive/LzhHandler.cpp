@@ -186,7 +186,7 @@ struct CItem
   AString GetName() const
   {
     AString dirName = GetDirName();
-    const char kDirSeparator = '\\';
+    const char kDirSeparator = CHAR_PATH_SEPARATOR; // '\\';
     // check kDirSeparator in Linux
     dirName.Replace((char)(unsigned char)0xFF, kDirSeparator);
     if (!dirName.IsEmpty() && dirName.Back() != kDirSeparator)

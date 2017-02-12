@@ -298,8 +298,7 @@ STDMETHODIMP CHandler::GetArchiveProperty(PROPID propID, PROPVARIANT *value)
 
       AString res;
 
-      unsigned numMethods = 0;
-
+      bool numMethods = 0;
       for (unsigned i = 0; i < ARRAY_SIZE(k_Methods); i++)
       {
         if (methodMask & ((UInt32)1 << i))

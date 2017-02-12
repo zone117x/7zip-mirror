@@ -149,7 +149,7 @@ class CProgressDialog: public NWindows::NControl::CModalDialog
   UInt64 _progressBar_Range;
   
   NWindows::NControl::CProgressBar m_ProgressBar;
-  NWindows::NControl::CListView _messageList;
+  // FIXME NWindows::NControl::CListView _messageList;
   
   int _numMessages;
 
@@ -240,7 +240,7 @@ class CProgressDialog: public NWindows::NControl::CModalDialog
 public:
   CProgressSync Sync;
   bool CompressingMode;
-  bool WaitMode;
+  // FIXME - not supported bool WaitMode;
   bool ShowCompressionInfo;
   bool MessagesDisplayed; // = true if user pressed OK on all messages or there are no messages.
   int IconID;

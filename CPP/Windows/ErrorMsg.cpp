@@ -2,65 +2,89 @@
 
 #include "StdAfx.h"
 
-#ifndef _UNICODE
-#include "../Common/StringConvert.h"
-#endif
-
-#include "ErrorMsg.h"
-
-#ifndef _UNICODE
-extern bool g_IsNT;
-#endif
+#include "Windows/ErrorMsg.h"
+#include "Common/StringConvert.h"
 
 namespace NWindows {
 namespace NError {
 
-static bool MyFormatMessage(DWORD errorCode, UString &message)
+UString MyFormatMessage(DWORD errorCode)
 {
-  LPVOID msgBuf;
-  #ifndef _UNICODE
-  if (!g_IsNT)
-  {
-    if (::FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER |
-        FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-        NULL, errorCode, 0, (LPTSTR) &msgBuf, 0, NULL) == 0)
-      return false;
-    message = GetUnicodeString((LPCTSTR)msgBuf);
+  const char * txt = 0;
+  AString msg;
+
+  switch(errorCode) {
+    case ERROR_NO_MORE_FILES   : txt = "No more files"; break ;
+    case E_NOTIMPL             : txt = "E_NOTIMPL"; break ;
+    case E_NOINTERFACE         : txt = "E_NOINTERFACE"; break ;
+    case E_ABORT               : txt = "E_ABORT"; break ;
+    case E_FAIL                : txt = "E_FAIL"; break ;
+    case STG_E_INVALIDFUNCTION : txt = "STG_E_INVALIDFUNCTION"; break ;
+    case E_OUTOFMEMORY         : txt = "E_OUTOFMEMORY"; break ;
+    case E_INVALIDARG          : txt = "E_INVALIDARG"; break ;
+    case ERROR_DIRECTORY          : txt = "Error Directory"; break ;
+    default:
+      txt = strerror(errorCode);
   }
-  else
-  #endif
-  {
-    if (::FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER |
-        FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-        NULL, errorCode, 0, (LPWSTR) &msgBuf, 0, NULL) == 0)
-      return false;
-    message = (LPCWSTR)msgBuf;
+  if (txt) {
+    msg = txt;
+  } else {
+    char msgBuf[256];
+    snprintf(msgBuf,sizeof(msgBuf),"error #%x",(unsigned)errorCode);
+    msgBuf[sizeof(msgBuf)-1] = 0;
+    msg = msgBuf;
   }
-  ::LocalFree(msgBuf);
+  return MultiByteToUnicodeString(msg);
+}
+
+#if 0
+bool MyFormatMessage(DWORD messageID, CSysString &message)
+{
+  const char * txt = 0;
+  AString msg;
+
+  switch(messageID) {
+    case ERROR_NO_MORE_FILES   : txt = "No more files"; break ;
+    case E_NOTIMPL             : txt = "E_NOTIMPL"; break ;
+    case E_NOINTERFACE         : txt = "E_NOINTERFACE"; break ;
+    case E_ABORT               : txt = "E_ABORT"; break ;
+    case E_FAIL                : txt = "E_FAIL"; break ;
+    case STG_E_INVALIDFUNCTION : txt = "STG_E_INVALIDFUNCTION"; break ;
+    case E_OUTOFMEMORY         : txt = "E_OUTOFMEMORY"; break ;
+    case E_INVALIDARG          : txt = "E_INVALIDARG"; break ;
+    default:
+      txt = strerror(messageID);
+  }
+  if (txt) {
+    msg = txt;
+  } else {
+    char msgBuf[256];
+    snprintf(msgBuf,sizeof(msgBuf),"error #%x",(unsigned)messageID);
+    msgBuf[sizeof(msgBuf)-1] = 0;
+    msg = msgBuf;
+  }
+  
+  msg += "                ";
+
+#ifdef _UNICODE
+  message = MultiByteToUnicodeString(msg);
+#else
+  message = msg;
+#endif
   return true;
 }
 
-UString MyFormatMessage(DWORD errorCode)
+#ifndef _UNICODE
+bool MyFormatMessage(DWORD messageID, UString &message)
 {
-  UString m;
-  if (!MyFormatMessage(errorCode, m) || m.IsEmpty())
-  {
-    char s[16];
-    for (int i = 0; i < 8; i++)
-    {
-      unsigned t = errorCode & 0xF;
-      errorCode >>= 4;
-      s[7 - i] = (char)((t < 10) ? ('0' + t) : ('A' + (t - 10)));
-    }
-    s[8] = 0;
-    m.AddAscii("Error #");
-    m.AddAscii(s);
-  }
-  else if (m.Len() >= 2
-      && m[m.Len() - 1] == 0x0A
-      && m[m.Len() - 2] == 0x0D)
-    m.DeleteFrom(m.Len() - 2);
-  return m;
+    CSysString messageSys;
+    bool result = MyFormatMessage(messageID, messageSys);
+    message = GetUnicodeString(messageSys);
+    return result;
 }
+#endif
+
+#endif
 
 }}
+

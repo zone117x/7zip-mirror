@@ -2,10 +2,6 @@
 
 #include "StdAfx.h"
 
-#include "../../../Common/MyWindows.h"
-
-#include <ShlObj.h>
-
 #include "../../../Common/StringConvert.h"
 
 #include "../../../Windows/DLL.h"
@@ -58,13 +54,13 @@ UString RootFolder_GetName_Computer(int &iconIndex)
 
 UString RootFolder_GetName_Network(int &iconIndex)
 {
-  iconIndex = GetIconIndexForCSIDL(CSIDL_NETWORK);
+  iconIndex = 0; // FIXME GetIconIndexForCSIDL(CSIDL_NETWORK);
   return LangString(IDS_NETWORK);
 }
 
 UString RootFolder_GetName_Documents(int &iconIndex)
 {
-  iconIndex = GetIconIndexForCSIDL(CSIDL_PERSONAL);
+  iconIndex = 0; // FIXME GetIconIndexForCSIDL(CSIDL_PERSONAL);
   return LangString(IDS_DOCUMENTS);
 }
 
@@ -84,7 +80,7 @@ static const wchar_t *kVolPrefix = L"\\\\.";
 
 void CRootFolder::Init()
 {
-  _names[ROOT_INDEX_COMPUTER] = RootFolder_GetName_Computer(_iconIndices[ROOT_INDEX_COMPUTER]);
+  // FIXME _names[ROOT_INDEX_COMPUTER] = RootFolder_GetName_Computer(_iconIndices[ROOT_INDEX_COMPUTER]);
   #ifdef USE_WIN_PATHS
   _names[ROOT_INDEX_DOCUMENTS] = RootFolder_GetName_Documents(_iconIndices[ROOT_INDEX_DOCUMENTS]);
   _names[ROOT_INDEX_NETWORK] = RootFolder_GetName_Network(_iconIndices[ROOT_INDEX_NETWORK]);
@@ -117,6 +113,7 @@ STDMETHODIMP CRootFolder::GetProperty(UInt32 itemIndex, PROPID propID, PROPVARIA
   return S_OK;
 }
 
+#ifdef _WIN32
 typedef BOOL (WINAPI *SHGetSpecialFolderPathWp)(HWND hwnd, LPWSTR pszPath, int csidl, BOOL fCreate);
 typedef BOOL (WINAPI *SHGetSpecialFolderPathAp)(HWND hwnd, LPSTR pszPath, int csidl, BOOL fCreate);
 
@@ -145,6 +142,7 @@ UString GetMyDocsPath()
   NFile::NName::NormalizeDirPathPrefix(us);
   return us;
 }
+#endif
 
 STDMETHODIMP CRootFolder::BindToFolder(UInt32 index, IFolderFolder **resultFolder)
 {

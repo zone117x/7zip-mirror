@@ -2356,7 +2356,7 @@ static bool AreSameMethodNames(const char *fullName, const char *shortName)
 }
 
 
-#ifdef MY_CPU_X86_OR_AMD64
+#if defined(MY_CPU_X86_OR_AMD64) && defined(_7ZIP_ASM)
 
 static void PrintCpuChars(AString &s, UInt32 v)
 {
@@ -2416,12 +2416,14 @@ void GetCpuName(AString &s)
 
   #ifdef MY_CPU_X86_OR_AMD64
   {
+    #ifdef _7ZIP_ASM
     Cx86cpuid cpuid;
     if (x86cpuid_CheckAndRead(&cpuid))
     {
       x86cpuid_to_String(cpuid, s);
       return;
     }
+    #endif
     #ifdef MY_CPU_AMD64
     s = "x64";
     #else

@@ -2,55 +2,140 @@
 
 #include "StdAfx.h"
 
-#ifndef _UNICODE
-#include "../Common/StringConvert.h"
-#endif
-
 #include "FileFind.h"
 #include "FileIO.h"
-#include "FileName.h"
+
+#include "../Common/StringConvert.h"
+
 
 #ifndef _UNICODE
 extern bool g_IsNT;
 #endif
 
-using namespace NWindows;
-using namespace NFile;
-using namespace NName;
+#include <sys/stat.h>
+#include <unistd.h>
+#include <errno.h>
 
-#if defined(_WIN32) && !defined(UNDER_CE)
+#define NEED_NAME_WINDOWS_TO_UNIX
+#include "myPrivate.h"
 
-EXTERN_C_BEGIN
+// #define TRACEN(u) u;
+#define TRACEN(u)  /* */
 
-typedef enum
-{
-  My_FindStreamInfoStandard,
-  My_FindStreamInfoMaxInfoLevel
-} MY_STREAM_INFO_LEVELS;
+void my_windows_split_path(const AString &p_path, AString &dir , AString &base) {
+  int pos = p_path.ReverseFind('/');
+  if (pos == -1) {
+    // no separator
+    dir  = ".";
+    if (p_path.IsEmpty())
+      base = ".";
+    else
+      base = p_path;
+  } else if ((pos+1) < p_path.Len()) {
+    // true separator
+    base = p_path.Ptr(pos+1);
+    while ((pos >= 1) && (p_path[pos-1] == '/'))
+      pos--;
+    if (pos == 0)
+      dir = "/";
+    else
+      dir = p_path.Left(pos);
+  } else {
+    // separator at the end of the path
+    // pos = p_path.find_last_not_of("/");
+    pos = -1;
+    int ind = 0;
+    while (p_path[ind]) {
+      if (p_path[ind] != '/')
+        pos = ind;
+      ind++;
+    }
+    if (pos == -1) {
+      base = "/";
+      dir = "/";
+    } else {
+      my_windows_split_path(p_path.Left(pos+1),dir,base);
+    }
+  }
+}
 
-typedef struct
-{
-  LARGE_INTEGER StreamSize;
-  WCHAR cStreamName[MAX_PATH + 36];
-} MY_WIN32_FIND_STREAM_DATA, *MY_PWIN32_FIND_STREAM_DATA;
+static void my_windows_split_path(const UString &p_path, UString &dir , UString &base) {
+  int pos = p_path.ReverseFind(L'/');
+  if (pos == -1) {
+    // no separator
+    dir  = L".";
+    if (p_path.IsEmpty())
+      base = L".";
+    else
+      base = p_path;
+  } else if ((pos+1) < p_path.Len()) {
+    // true separator
+    base = p_path.Ptr(pos+1);
+    while ((pos >= 1) && (p_path[pos-1] == L'/'))
+      pos--;
+    if (pos == 0)
+      dir = L"/";
+    else
+      dir = p_path.Left(pos);
+  } else {
+    // separator at the end of the path
+    // pos = p_path.find_last_not_of("/");
+    pos = -1;
+    int ind = 0;
+    while (p_path[ind]) {
+      if (p_path[ind] != L'/')
+        pos = ind;
+      ind++;
+    }
+    if (pos == -1) {
+      base = L"/";
+      dir = L"/";
+    } else {
+      my_windows_split_path(p_path.Left(pos+1),dir,base);
+    }
+  }
+}
 
-typedef WINBASEAPI HANDLE (WINAPI *FindFirstStreamW_Ptr)(LPCWSTR fileName, MY_STREAM_INFO_LEVELS infoLevel,
-    LPVOID findStreamData, DWORD flags);
+static int filter_pattern(const char *string , const char *pattern , int flags_nocase) {
+  if ((string == 0) || (*string==0)) {
+    if (pattern == 0)
+      return 1;
+    while (*pattern=='*')
+      ++pattern;
+    return (!*pattern);
+  }
 
-typedef WINBASEAPI BOOL (APIENTRY *FindNextStreamW_Ptr)(HANDLE findStream, LPVOID findStreamData);
-
-EXTERN_C_END
-
-#endif
+  switch (*pattern) {
+  case '*':
+    if (!filter_pattern(string+1,pattern,flags_nocase))
+      return filter_pattern(string,pattern+1,flags_nocase);
+    return 1;
+  case 0:
+    if (*string==0)
+      return 1;
+    break;
+  case '?':
+    return filter_pattern(string+1,pattern+1,flags_nocase);
+  default:
+    if (   ((flags_nocase) && (tolower(*pattern)==tolower(*string)))
+           || (*pattern == *string)
+       ) {
+      return filter_pattern(string+1,pattern+1,flags_nocase);
+    }
+    break;
+  }
+  return 0;
+}
 
 namespace NWindows {
 namespace NFile {
 
 #ifdef SUPPORT_DEVICE_FILE
-namespace NSystem
-{
-bool MyGetDiskFreeSpace(CFSTR rootPath, UInt64 &clusterSize, UInt64 &totalSize, UInt64 &freeSize);
-}
+bool IsDeviceName(CFSTR n);
+#endif
+
+#if defined(WIN_LONG_PATH)
+bool GetLongPath(CFSTR fileName, UString &res);
 #endif
 
 namespace NFind {
@@ -59,9 +144,9 @@ bool CFileInfo::IsDots() const throw()
 {
   if (!IsDir() || Name.IsEmpty())
     return false;
-  if (Name[0] != '.')
+  if (Name[0] != FTEXT('.'))
     return false;
-  return Name.Len() == 1 || (Name.Len() == 2 && Name[1] == '.');
+  return Name.Len() == 1 || (Name.Len() == 2 && Name[1] == FTEXT('.'));
 }
 
 #define WIN_FD_TO_MY_FI(fi, fd) \
@@ -70,7 +155,6 @@ bool CFileInfo::IsDots() const throw()
   fi.ATime = fd.ftLastAccessTime; \
   fi.MTime = fd.ftLastWriteTime; \
   fi.Size = (((UInt64)fd.nFileSizeHigh) << 32) + fd.nFileSizeLow; \
-  fi.IsAltStream = false; \
   fi.IsDevice = false;
 
   /*
@@ -81,260 +165,216 @@ bool CFileInfo::IsDots() const throw()
   #endif
   */
 
-static void Convert_WIN32_FIND_DATA_to_FileInfo(const WIN32_FIND_DATAW &fd, CFileInfo &fi)
-{
-  WIN_FD_TO_MY_FI(fi, fd);
-  fi.Name = us2fs(fd.cFileName);
-  #if defined(_WIN32) && !defined(UNDER_CE)
-  // fi.ShortName = us2fs(fd.cAlternateFileName);
-  #endif
-}
-
 #ifndef _UNICODE
 
-static void Convert_WIN32_FIND_DATA_to_FileInfo(const WIN32_FIND_DATA &fd, CFileInfo &fi)
+static inline UINT GetCurrentCodePage() { return ::AreFileApisANSI() ? CP_ACP : CP_OEMCP; }
+
+static void ConvertWIN32_FIND_DATA_To_FileInfo(const WIN32_FIND_DATA &fd, CFileInfo &fi)
 {
   WIN_FD_TO_MY_FI(fi, fd);
   fi.Name = fas2fs(fd.cFileName);
-  #if defined(_WIN32) && !defined(UNDER_CE)
-  // fi.ShortName = fas2fs(fd.cAlternateFileName);
-  #endif
 }
 #endif
   
 ////////////////////////////////
 // CFindFile
 
-bool CFindFileBase::Close() throw()
+bool CFindFile::Close()
 {
-  if (_handle == INVALID_HANDLE_VALUE)
+  if(_dirp == 0)
     return true;
-  if (!::FindClose(_handle))
-    return false;
-  _handle = INVALID_HANDLE_VALUE;
+  int ret = closedir(_dirp);
+  if (ret == 0)
+  {
+    _dirp = 0;
+    return true;
+  }
+  return false;
+}
+
+
+static bool originalFilename(const UString & src, AString & res)
+{
+  // Try to recover the original filename
+  res = "";
+  int i=0;
+  while (src[i])
+  {
+    if (src[i] >= 256) {
+      return false;
+    } else {
+      res += char(src[i]);
+    }
+    i++;
+  }
   return true;
 }
 
-/*
-WinXP-64 FindFirstFile():
-  ""      -  ERROR_PATH_NOT_FOUND
-  folder\ -  ERROR_FILE_NOT_FOUND
-  \       -  ERROR_FILE_NOT_FOUND
-  c:\     -  ERROR_FILE_NOT_FOUND
-  c:      -  ERROR_FILE_NOT_FOUND, if current dir is ROOT     ( c:\ )
-  c:      -  OK,                   if current dir is NOT ROOT ( c:\folder )
-  folder  -  OK
+// Warning this function cannot update "fileInfo.Name"
+static int fillin_CFileInfo(CFileInfo &fileInfo,const char *filename,bool ignoreLink) {
+  struct stat stat_info;
 
-  \\               - ERROR_INVALID_NAME
-  \\Server         - ERROR_INVALID_NAME
-  \\Server\        - ERROR_INVALID_NAME
-      
-  \\Server\Share            - ERROR_BAD_NETPATH
-  \\Server\Share            - ERROR_BAD_NET_NAME (Win7).
-             !!! There is problem : Win7 makes some requests for "\\Server\Shar" (look in Procmon),
-                 when we call it for "\\Server\Share"
-                      
-  \\Server\Share\           - ERROR_FILE_NOT_FOUND
-  
-  \\?\UNC\Server\Share      - ERROR_INVALID_NAME
-  \\?\UNC\Server\Share      - ERROR_BAD_PATHNAME (Win7)
-  \\?\UNC\Server\Share\     - ERROR_FILE_NOT_FOUND
-  
-  \\Server\Share_RootDrive  - ERROR_INVALID_NAME
-  \\Server\Share_RootDrive\ - ERROR_INVALID_NAME
-  
-  c:\* - ERROR_FILE_NOT_FOUND, if thare are no item in that folder
-*/
+  int ret;
+#ifdef ENV_HAVE_LSTAT
+  if ( (global_use_lstat) && (ignoreLink == false)) {
+    ret = lstat(filename,&stat_info);
+  } else
+#endif
+  {
+     ret = stat(filename,&stat_info);
+  }
 
-bool CFindFile::FindFirst(CFSTR path, CFileInfo &fi)
+  // printf("fillin_CFileInfo(%s,%d)=%d  mode=%o\n",filename,(int)ignoreLink,ret,(unsigned)stat_info.st_mode);
+
+
+  if (ret != 0) return ret;
+
+  /* FIXME : FILE_ATTRIBUTE_HIDDEN ? */
+  if (S_ISDIR(stat_info.st_mode)) {
+    fileInfo.Attrib = FILE_ATTRIBUTE_DIRECTORY;
+  } else {
+    fileInfo.Attrib = FILE_ATTRIBUTE_ARCHIVE;
+  }
+
+  if (!(stat_info.st_mode & S_IWUSR))
+    fileInfo.Attrib |= FILE_ATTRIBUTE_READONLY;
+
+  fileInfo.Attrib |= FILE_ATTRIBUTE_UNIX_EXTENSION + ((stat_info.st_mode & 0xFFFF) << 16);
+
+  RtlSecondsSince1970ToFileTime( stat_info.st_ctime, &fileInfo.CTime );
+  RtlSecondsSince1970ToFileTime( stat_info.st_mtime, &fileInfo.MTime );
+  RtlSecondsSince1970ToFileTime( stat_info.st_atime, &fileInfo.ATime );
+
+  fileInfo.IsDevice = false;
+
+  if (S_ISDIR(stat_info.st_mode)) {
+    fileInfo.Size = 0;
+  } else { // file or symbolic link
+    fileInfo.Size = stat_info.st_size; // for a symbolic link, size = size of filename
+  }
+  return 0;
+}
+
+static int fillin_CFileInfo(CFileInfo &fi,const char *dir,const char *name,bool ignoreLink) {
+  char filename[MAX_PATHNAME_LEN];
+  size_t dir_len = strlen(dir);
+  size_t name_len = strlen(name);
+  size_t total = dir_len + 1 + name_len + 1; // 1 = strlen("/"); + le zero character
+  if (total >= MAX_PATHNAME_LEN) throw "fillin_CFileInfo - internal error - MAX_PATHNAME_LEN";
+  memcpy(filename,dir,dir_len);
+  if (dir_len >= 1)
+  {
+	if (filename[dir_len-1] == CHAR_PATH_SEPARATOR)
+	{ // delete the '/'
+		dir_len--;
+	}
+  }
+  filename[dir_len] = CHAR_PATH_SEPARATOR;
+  memcpy(filename+(dir_len+1),name,name_len+1); // copy also final '\0'
+
+#ifdef _UNICODE
+  fi.Name = GetUnicodeString(name, CP_ACP);
+#else
+  fi.Name = name;
+#endif
+
+  int ret = fillin_CFileInfo(fi,filename,ignoreLink);
+  if (ret != 0) {
+	AString err_msg = "stat error for ";
+        err_msg += filename;
+        err_msg += " (";
+        err_msg += strerror(errno);
+        err_msg += ")";
+        throw err_msg;
+  }
+  return ret;
+}
+
+bool CFindFile::FindFirst(CFSTR cfWildcard, CFileInfo &fi, bool ignoreLink)
 {
   if (!Close())
     return false;
-  #ifndef _UNICODE
-  if (!g_IsNT)
-  {
-    WIN32_FIND_DATAA fd;
-    _handle = ::FindFirstFileA(fs2fas(path), &fd);
-    if (_handle == INVALID_HANDLE_VALUE)
-      return false;
-    Convert_WIN32_FIND_DATA_to_FileInfo(fd, fi);
-  }
-  else
-  #endif
-  {
-    WIN32_FIND_DATAW fd;
 
-    IF_USE_MAIN_PATH
-      _handle = ::FindFirstFileW(fs2us(path), &fd);
-    #ifdef WIN_LONG_PATH
-    if (_handle == INVALID_HANDLE_VALUE && USE_SUPER_PATH)
-    {
-      UString superPath;
-      if (GetSuperPath(path, superPath, USE_MAIN_PATH))
-        _handle = ::FindFirstFileW(superPath, &fd);
-    }
-    #endif
-    if (_handle == INVALID_HANDLE_VALUE)
-      return false;
-    Convert_WIN32_FIND_DATA_to_FileInfo(fd, fi);
+  AString Awildcard = UnicodeStringToMultiByte(cfWildcard, CP_ACP);
+  const char * wildcard = (const char *)Awildcard;
+
+
+  if ((!wildcard) || (wildcard[0]==0)) {
+    SetLastError(ERROR_PATH_NOT_FOUND);
+    return false;
   }
-  return true;
+ 
+  my_windows_split_path(nameWindowToUnix(wildcard),_directory,_pattern);
+  
+  TRACEN((printf("CFindFile::FindFirst : %s (dirname=%s,pattern=%s)\n",wildcard,(const char *)_directory,(const char *)_pattern)))
+
+  _dirp = ::opendir((const char *)_directory);
+  TRACEN((printf("CFindFile::FindFirst : opendir=%p\n",_dirp)))
+
+  if ((_dirp == 0) && (global_use_utf16_conversion)) {
+    // Try to recover the original filename
+    UString ustr = MultiByteToUnicodeString(_directory, 0);
+    AString resultString;
+    bool is_good = originalFilename(ustr, resultString);
+    if (is_good) {
+      _dirp = ::opendir((const char *)resultString);
+      _directory = resultString;
+    }
+  }
+
+  if (_dirp == 0) return false;
+
+  struct dirent *dp;
+  while ((dp = readdir(_dirp)) != NULL) {
+    if (filter_pattern(dp->d_name,(const char *)_pattern,0) == 1) {
+      int retf = fillin_CFileInfo(fi,(const char *)_directory,dp->d_name,ignoreLink);
+      if (retf)
+      {
+         TRACEN((printf("CFindFile::FindFirst : closedir-1(dirp=%p)\n",_dirp)))
+         closedir(_dirp);
+         _dirp = 0;
+         SetLastError( ERROR_NO_MORE_FILES );
+         return false;
+      }
+      TRACEN((printf("CFindFile::FindFirst -%s- true\n",dp->d_name)))
+      return true;
+    }
+  }
+
+  TRACEN((printf("CFindFile::FindFirst : closedir-2(dirp=%p)\n",_dirp)))
+  closedir(_dirp);
+  _dirp = 0;
+  SetLastError( ERROR_NO_MORE_FILES );
+  return false;
+
 }
 
 bool CFindFile::FindNext(CFileInfo &fi)
 {
-  #ifndef _UNICODE
-  if (!g_IsNT)
+  if (_dirp == 0)
   {
-    WIN32_FIND_DATAA fd;
-    if (!::FindNextFileA(_handle, &fd))
-      return false;
-    Convert_WIN32_FIND_DATA_to_FileInfo(fd, fi);
-  }
-  else
-  #endif
-  {
-    WIN32_FIND_DATAW fd;
-    if (!::FindNextFileW(_handle, &fd))
-      return false;
-    Convert_WIN32_FIND_DATA_to_FileInfo(fd, fi);
-  }
-  return true;
-}
-
-#if defined(_WIN32) && !defined(UNDER_CE)
-
-////////////////////////////////
-// AltStreams
-
-static FindFirstStreamW_Ptr g_FindFirstStreamW;
-static FindNextStreamW_Ptr g_FindNextStreamW;
-
-struct CFindStreamLoader
-{
-  CFindStreamLoader()
-  {
-    g_FindFirstStreamW = (FindFirstStreamW_Ptr)::GetProcAddress(::GetModuleHandleA("kernel32.dll"), "FindFirstStreamW");
-    g_FindNextStreamW = (FindNextStreamW_Ptr)::GetProcAddress(::GetModuleHandleA("kernel32.dll"), "FindNextStreamW");
-  }
-} g_FindStreamLoader;
-
-bool CStreamInfo::IsMainStream() const throw()
-{
-  return StringsAreEqualNoCase_Ascii(Name, "::$DATA");
-};
-
-UString CStreamInfo::GetReducedName() const
-{
-  // remove ":$DATA" postfix, but keep postfix, if Name is "::$DATA"
-  UString s = Name;
-  if (s.Len() > 6 + 1 && StringsAreEqualNoCase_Ascii(s.RightPtr(6), ":$DATA"))
-    s.DeleteFrom(s.Len() - 6);
-  return s;
-}
-
-/*
-UString CStreamInfo::GetReducedName2() const
-{
-  UString s = GetReducedName();
-  if (!s.IsEmpty() && s[0] == ':')
-    s.Delete(0);
-  return s;
-}
-*/
-
-static void Convert_WIN32_FIND_STREAM_DATA_to_StreamInfo(const MY_WIN32_FIND_STREAM_DATA &sd, CStreamInfo &si)
-{
-  si.Size = sd.StreamSize.QuadPart;
-  si.Name = sd.cStreamName;
-}
-
-/*
-  WinXP-64 FindFirstStream():
-  ""      -  ERROR_PATH_NOT_FOUND
-  folder\ -  OK
-  folder  -  OK
-  \       -  OK
-  c:\     -  OK
-  c:      -  OK, if current dir is ROOT     ( c:\ )
-  c:      -  OK, if current dir is NOT ROOT ( c:\folder )
-  \\Server\Share   - OK
-  \\Server\Share\  - OK
-
-  \\               - ERROR_INVALID_NAME
-  \\Server         - ERROR_INVALID_NAME
-  \\Server\        - ERROR_INVALID_NAME
-*/
-
-bool CFindStream::FindFirst(CFSTR path, CStreamInfo &si)
-{
-  if (!Close())
-    return false;
-  if (!g_FindFirstStreamW)
-  {
-    ::SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
+    SetLastError( ERROR_INVALID_HANDLE );
     return false;
   }
-  {
-    MY_WIN32_FIND_STREAM_DATA sd;
-    SetLastError(0);
-    IF_USE_MAIN_PATH
-      _handle = g_FindFirstStreamW(fs2us(path), My_FindStreamInfoStandard, &sd, 0);
-    if (_handle == INVALID_HANDLE_VALUE)
-    {
-      if (::GetLastError() == ERROR_HANDLE_EOF)
-        return false;
-      // long name can be tricky for path like ".\dirName".
-      #ifdef WIN_LONG_PATH
-      if (USE_SUPER_PATH)
-      {
-        UString superPath;
-        if (GetSuperPath(path, superPath, USE_MAIN_PATH))
-          _handle = g_FindFirstStreamW(superPath, My_FindStreamInfoStandard, &sd, 0);
+
+  struct dirent *dp;
+  while ((dp = readdir(_dirp)) != NULL) {
+      if (filter_pattern(dp->d_name,(const char *)_pattern,0) == 1) {
+        int retf = fillin_CFileInfo(fi,(const char *)_directory,dp->d_name,false);
+        if (retf)
+        {
+           TRACEN((printf("FindNextFileA -%s- ret_handle=FALSE (errno=%d)\n",dp->d_name,errno)))
+           return false;
+
+        }
+        TRACEN((printf("FindNextFileA -%s- true\n",dp->d_name)))
+        return true;
       }
-      #endif
     }
-    if (_handle == INVALID_HANDLE_VALUE)
-      return false;
-    Convert_WIN32_FIND_STREAM_DATA_to_StreamInfo(sd, si);
-  }
-  return true;
+  TRACEN((printf("FindNextFileA ret_handle=FALSE (ERROR_NO_MORE_FILES)\n")))
+  SetLastError( ERROR_NO_MORE_FILES );
+  return false;
 }
-
-bool CFindStream::FindNext(CStreamInfo &si)
-{
-  if (!g_FindNextStreamW)
-  {
-    ::SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
-    return false;
-  }
-  {
-    MY_WIN32_FIND_STREAM_DATA sd;
-    if (!g_FindNextStreamW(_handle, &sd))
-      return false;
-    Convert_WIN32_FIND_STREAM_DATA_to_StreamInfo(sd, si);
-  }
-  return true;
-}
-
-bool CStreamEnumerator::Next(CStreamInfo &si, bool &found)
-{
-  bool res;
-  if (_find.IsHandleAllocated())
-    res = _find.FindNext(si);
-  else
-    res = _find.FindFirst(_filePath, si);
-  if (res)
-  {
-    found = true;
-    return true;
-  }
-  found = false;
-  return (::GetLastError() == ERROR_HANDLE_EOF);
-}
-
-#endif
-
 
 #define MY_CLEAR_FILETIME(ft) ft.dwLowDateTime = ft.dwHighDateTime = 0;
 
@@ -348,256 +388,66 @@ void CFileInfoBase::ClearBase() throw()
   IsAltStream = false;
   IsDevice = false;
 }
-
-/*
-WinXP-64 GetFileAttributes():
-  If the function fails, it returns INVALID_FILE_ATTRIBUTES and use GetLastError() to get error code
-
-  \    - OK
-  C:\  - OK, if there is such drive,
-  D:\  - ERROR_PATH_NOT_FOUND, if there is no such drive,
-
-  C:\folder     - OK
-  C:\folder\    - OK
-  C:\folderBad  - ERROR_FILE_NOT_FOUND
-
-  \\Server\BadShare  - ERROR_BAD_NETPATH
-  \\Server\Share     - WORKS OK, but MSDN says:
-                          GetFileAttributes for a network share, the function fails, and GetLastError
-                          returns ERROR_BAD_NETPATH. You must specify a path to a subfolder on that share.
-*/
-
-DWORD GetFileAttrib(CFSTR path)
-{
-  #ifndef _UNICODE
-  if (!g_IsNT)
-    return ::GetFileAttributes(fs2fas(path));
-  else
-  #endif
-  {
-    IF_USE_MAIN_PATH
-    {
-      DWORD dw = ::GetFileAttributesW(fs2us(path));
-      if (dw != INVALID_FILE_ATTRIBUTES)
-        return dw;
-    }
-    #ifdef WIN_LONG_PATH
-    if (USE_SUPER_PATH)
-    {
-      UString superPath;
-      if (GetSuperPath(path, superPath, USE_MAIN_PATH))
-        return ::GetFileAttributesW(superPath);
-    }
-    #endif
-    return INVALID_FILE_ATTRIBUTES;
-  }
-}
-
-/* if path is "c:" or "c::" then CFileInfo::Find() returns name of current folder for that disk
-   so instead of absolute path we have relative path in Name. That is not good in some calls */
-
-/* In CFileInfo::Find() we want to support same names for alt streams as in CreateFile(). */
-
-/* CFileInfo::Find()
-We alow the following paths (as FindFirstFile):
-  C:\folder
-  c:                      - if current dir is NOT ROOT ( c:\folder )
-
-also we support paths that are not supported by FindFirstFile:
-  \
-  \\.\c:
-  c:\                     - Name will be without tail slash ( c: )
-  \\?\c:\                 - Name will be without tail slash ( c: )
-  \\Server\Share
-  \\?\UNC\Server\Share
-
-  c:\folder:stream  - Name = folder:stream
-  c:\:stream        - Name = :stream
-  c::stream         - Name = c::stream
-*/
-
-bool CFileInfo::Find(CFSTR path)
+  
+bool CFileInfo::Find(CFSTR wildcard, bool ignoreLink)
 {
   #ifdef SUPPORT_DEVICE_FILE
-  if (IsDevicePath(path))
+  if (IsDeviceName(wildcard))
   {
-    ClearBase();
-    Name = path + 4;
+    Clear();
     IsDevice = true;
-    
-    if (NName::IsDrivePath2(path + 4) && path[6] == 0)
-    {
-      FChar drive[4] = { path[4], ':', '\\', 0 };
-      UInt64 clusterSize, totalSize, freeSize;
-      if (NSystem::MyGetDiskFreeSpace(drive, clusterSize, totalSize, freeSize))
-      {
-        Size = totalSize;
-        return true;
-      }
-    }
-
     NIO::CInFile inFile;
-    // ::OutputDebugStringW(path);
-    if (!inFile.Open(path))
+    if (!inFile.Open(wildcard))
       return false;
-    // ::OutputDebugStringW(L"---");
-    if (inFile.SizeDefined)
-      Size = inFile.Size;
+    Name = wildcard + 4;
+    if (inFile.LengthDefined)
+      Size = inFile.Length;
     return true;
   }
   #endif
-
-  #if defined(_WIN32) && !defined(UNDER_CE)
-
-  int colonPos = FindAltStreamColon(path);
-  if (colonPos >= 0 && path[(unsigned)colonPos + 1] != 0)
-  {
-    UString streamName = fs2us(path + (unsigned)colonPos);
-    FString filePath = path;
-    filePath.DeleteFrom(colonPos);
-    /* we allow both cases:
-      name:stream
-      name:stream:$DATA
-    */
-    const unsigned kPostfixSize = 6;
-    if (streamName.Len() <= kPostfixSize
-        || !StringsAreEqualNoCase_Ascii(streamName.RightPtr(kPostfixSize), ":$DATA"))
-      streamName += L":$DATA";
-
-    bool isOk = true;
-    
-    if (IsDrivePath2(filePath) &&
-        (colonPos == 2 || colonPos == 3 && filePath[2] == '\\'))
-    {
-      // FindFirstFile doesn't work for "c:\" and for "c:" (if current dir is ROOT)
-      ClearBase();
-      Name.Empty();
-      if (colonPos == 2)
-        Name = filePath;
-    }
-    else
-      isOk = Find(filePath);
-
-    if (isOk)
-    {
-      Attrib &= ~(FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT);
-      Size = 0;
-      CStreamEnumerator enumerator(filePath);
-      for (;;)
-      {
-        CStreamInfo si;
-        bool found;
-        if (!enumerator.Next(si, found))
-          return false;
-        if (!found)
-        {
-          ::SetLastError(ERROR_FILE_NOT_FOUND);
-          return false;
-        }
-        if (si.Name.IsEqualTo_NoCase(streamName))
-        {
-          // we delete postfix, if alt stream name is not "::$DATA"
-          if (si.Name.Len() > kPostfixSize + 1)
-            si.Name.DeleteFrom(si.Name.Len() - kPostfixSize);
-          Name += us2fs(si.Name);
-          Size = si.Size;
-          IsAltStream = true;
-          return true;
-        }
-      }
-    }
-  }
-  
-  #endif
-
   CFindFile finder;
-
-  #if defined(_WIN32) && !defined(UNDER_CE)
+  if (finder.FindFirst(wildcard, *this,ignoreLink))
+    return true;
+  #ifdef _WIN32
   {
-    /*
     DWORD lastError = GetLastError();
-    if (lastError == ERROR_FILE_NOT_FOUND
-        || lastError == ERROR_BAD_NETPATH  // XP64: "\\Server\Share"
-        || lastError == ERROR_BAD_NET_NAME // Win7: "\\Server\Share"
-        || lastError == ERROR_INVALID_NAME // XP64: "\\?\UNC\Server\Share"
-        || lastError == ERROR_BAD_PATHNAME // Win7: "\\?\UNC\Server\Share"
-        )
-    */
-    
-    unsigned rootSize = 0;
-    if (IsSuperPath(path))
-      rootSize = kSuperPathPrefixSize;
-    
-    if (NName::IsDrivePath(path + rootSize) && path[rootSize + 3] == 0)
+    if (lastError == ERROR_BAD_NETPATH || lastError == ERROR_FILE_NOT_FOUND)
     {
-      DWORD attrib = GetFileAttrib(path);
-      if (attrib != INVALID_FILE_ATTRIBUTES && (attrib & FILE_ATTRIBUTE_DIRECTORY) != 0)
+      int len = MyStringLen(wildcard);
+      if (len > 2 && wildcard[0] == '\\' && wildcard[1] == '\\')
       {
-        ClearBase();
-        Attrib = attrib;
-        Name = path + rootSize;
-        Name.DeleteFrom(2); // we don't need backslash (C:)
-        return true;
-      }
-    }
-    else if (IS_PATH_SEPAR(path[0]))
-      if (path[1] == 0)
-      {
-        DWORD attrib = GetFileAttrib(path);
-        if (attrib != INVALID_FILE_ATTRIBUTES && (attrib & FILE_ATTRIBUTE_DIRECTORY) != 0)
+        int pos = FindCharPosInString(wildcard + 2, FTEXT('\\'));
+        if (pos >= 0)
         {
-          ClearBase();
-          Name.Empty();
-          Attrib = attrib;
-          return true;
-        }
-      }
-      else
-      {
-        const unsigned prefixSize = GetNetworkServerPrefixSize(path);
-        if (prefixSize > 0 && path[prefixSize] != 0)
-        {
-          if (NName::FindSepar(path + prefixSize) < 0)
+          pos += 2 + 1;
+          len -= pos;
+          CFSTR remString = wildcard + pos;
+          int pos2 = FindCharPosInString(remString, FTEXT('\\'));
+          FString s = wildcard;
+          if (pos2 < 0 || pos2 == len - 1)
           {
-            FString s = path;
-            s.Add_PathSepar();
-            s += FCHAR_ANY_MASK;
-            
-            bool isOK = false;
-            if (finder.FindFirst(s, *this))
+            FString s = wildcard;
+            if (pos2 < 0)
             {
+              pos2 = len;
+              s += FTEXT('\\');
+            }
+            s += FCHAR_ANY_MASK;
+            if (finder.FindFirst(s, *this))
               if (Name == FTEXT("."))
               {
-                Name = path + prefixSize;
+		Name.SetFrom(s.Ptr(pos), pos2);
                 return true;
               }
-              isOK = true;
-              /* if "\\server\share" maps to root folder "d:\", there is no "." item.
-                 But it's possible that there are another items */
-            }
-            {
-              DWORD attrib = GetFileAttrib(path);
-              if (isOK || attrib != INVALID_FILE_ATTRIBUTES && (attrib & FILE_ATTRIBUTE_DIRECTORY) != 0)
-              {
-                ClearBase();
-                if (attrib != INVALID_FILE_ATTRIBUTES)
-                  Attrib = attrib;
-                else
-                  SetAsDir();
-                Name = path + prefixSize;
-                return true;
-              }
-            }
-            // ::SetLastError(lastError);
+            ::SetLastError(lastError);
           }
         }
       }
+    }
   }
   #endif
-
-  return finder.FindFirst(path, *this);
+  return false;
 }
-
 
 bool DoesFileExist(CFSTR name)
 {
@@ -610,13 +460,11 @@ bool DoesDirExist(CFSTR name)
   CFileInfo fi;
   return fi.Find(name) && fi.IsDir();
 }
-
 bool DoesFileOrDirExist(CFSTR name)
 {
   CFileInfo fi;
   return fi.Find(name);
 }
-
 
 bool CEnumerator::NextAny(CFileInfo &fi)
 {
@@ -652,7 +500,8 @@ bool CEnumerator::Next(CFileInfo &fi, bool &found)
 // CFindChangeNotification
 // FindFirstChangeNotification can return 0. MSDN doesn't tell about it.
 
-bool CFindChangeNotification::Close() throw()
+#ifdef _WIN32
+bool CFindChangeNotification::Close()
 {
   if (!IsHandleAllocated())
     return true;
@@ -662,22 +511,21 @@ bool CFindChangeNotification::Close() throw()
   return true;
 }
            
-HANDLE CFindChangeNotification::FindFirst(CFSTR path, bool watchSubtree, DWORD notifyFilter)
+HANDLE CFindChangeNotification::FindFirst(CFSTR pathName, bool watchSubtree, DWORD notifyFilter)
 {
   #ifndef _UNICODE
   if (!g_IsNT)
-    _handle = ::FindFirstChangeNotification(fs2fas(path), BoolToBOOL(watchSubtree), notifyFilter);
+    _handle = ::FindFirstChangeNotification(fs2fas(pathName), BoolToBOOL(watchSubtree), notifyFilter);
   else
   #endif
   {
-    IF_USE_MAIN_PATH
-    _handle = ::FindFirstChangeNotificationW(fs2us(path), BoolToBOOL(watchSubtree), notifyFilter);
+    _handle = ::FindFirstChangeNotificationW(fs2us(pathName), BoolToBOOL(watchSubtree), notifyFilter);
     #ifdef WIN_LONG_PATH
     if (!IsHandleAllocated())
     {
-      UString superPath;
-      if (GetSuperPath(path, superPath, USE_MAIN_PATH))
-        _handle = ::FindFirstChangeNotificationW(superPath, BoolToBOOL(watchSubtree), notifyFilter);
+      UString longPath;
+      if (GetLongPath(pathName, longPath))
+        _handle = ::FindFirstChangeNotificationW(longPath, BoolToBOOL(watchSubtree), notifyFilter);
     }
     #endif
   }
@@ -696,22 +544,23 @@ bool MyGetLogicalDriveStrings(CObjectVector<FString> &driveStrings)
     UINT32 size = GetLogicalDriveStrings(0, NULL);
     if (size == 0)
       return false;
-    CObjArray<char> buf(size);
-    UINT32 newSize = GetLogicalDriveStrings(size, buf);
+    AString buf;
+    UINT32 newSize = GetLogicalDriveStrings(size, buf.GetBuffer(size));
     if (newSize == 0 || newSize > size)
       return false;
     AString s;
-    UINT32 prev = 0;
     for (UINT32 i = 0; i < newSize; i++)
     {
-      if (buf[i] == 0)
+      char c = buf[i];
+      if (c == '\0')
       {
-        s = buf + prev;
-        prev = i + 1;
         driveStrings.Add(fas2fs(s));
+        s.Empty();
       }
+      else
+        s += c;
     }
-    return prev == newSize;
+    return s.IsEmpty();
   }
   else
   #endif
@@ -719,25 +568,28 @@ bool MyGetLogicalDriveStrings(CObjectVector<FString> &driveStrings)
     UINT32 size = GetLogicalDriveStringsW(0, NULL);
     if (size == 0)
       return false;
-    CObjArray<wchar_t> buf(size);
-    UINT32 newSize = GetLogicalDriveStringsW(size, buf);
+    UString buf;
+    UINT32 newSize = GetLogicalDriveStringsW(size, buf.GetBuffer(size));
     if (newSize == 0 || newSize > size)
       return false;
     UString s;
-    UINT32 prev = 0;
     for (UINT32 i = 0; i < newSize; i++)
     {
-      if (buf[i] == 0)
+      WCHAR c = buf[i];
+      if (c == L'\0')
       {
-        s = buf + prev;
-        prev = i + 1;
         driveStrings.Add(us2fs(s));
+        s.Empty();
       }
+      else
+        s += c;
     }
-    return prev == newSize;
+    return s.IsEmpty();
   }
 }
 
 #endif
+
+#endif // _WIN32
 
 }}}

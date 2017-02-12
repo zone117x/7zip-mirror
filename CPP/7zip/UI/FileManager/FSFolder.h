@@ -17,7 +17,9 @@ namespace NFsFolder {
 
 class CFSFolder;
 
+#ifdef _WIN32
 #define FS_SHOW_LINKS_INFO
+#endif
 
 struct CDirItem: public NWindows::NFile::NFind::CFileInfo
 {
@@ -142,7 +144,7 @@ private:
   // bool _scanAltStreams;
   bool _flatMode;
 
-  NWindows::NFile::NFind::CFindChangeNotification _findChangeNotification;
+  // FIXME NWindows::NFile::NFind::CFindChangeNotification _findChangeNotification;
 
   HRESULT GetItemsFullSize(const UInt32 *indices, UInt32 numItems, CFsFolderStat &stat);
 

@@ -2,429 +2,455 @@
 
 #include "StdAfx.h"
 
-#ifdef SUPPORT_DEVICE_FILE
-#include "../../C/Alloc.h"
-#endif
-
 #include "FileIO.h"
-#include "FileName.h"
+#include "Defs.h"
+#include "../Common/StringConvert.h"
 
-#ifndef _UNICODE
-extern bool g_IsNT;
+#include <time.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <fcntl.h>
+
+#define NEED_NAME_WINDOWS_TO_UNIX
+#include "myPrivate.h"
+
+#include <sys/types.h>
+#include <utime.h>
+
+#ifdef ENV_HAVE_LSTAT
+#define FD_LINK (-2)
 #endif
 
-using namespace NWindows;
-using namespace NFile;
-using namespace NName;
+#define GENERIC_READ	0x80000000
+#define GENERIC_WRITE	0x40000000
+
+#ifdef ENV_HAVE_LSTAT
+extern "C"
+{
+int global_use_lstat=1; // default behaviour : p7zip stores symlinks instead of dumping the files they point to
+}
+#endif
+
+extern BOOLEAN WINAPI RtlTimeToSecondsSince1970( const LARGE_INTEGER *Time, DWORD *Seconds );
 
 namespace NWindows {
 namespace NFile {
-
-#ifdef SUPPORT_DEVICE_FILE
-
-namespace NSystem
-{
-bool MyGetDiskFreeSpace(CFSTR rootPath, UInt64 &clusterSize, UInt64 &totalSize, UInt64 &freeSize);
-}
-#endif
-
 namespace NIO {
 
-/*
-WinXP-64 CreateFile():
-  ""             -  ERROR_PATH_NOT_FOUND
-  :stream        -  OK
-  .:stream       -  ERROR_PATH_NOT_FOUND
-  .\:stream      -  OK
+CFileBase::~CFileBase()
+{
+  Close();
+}
+
+bool CFileBase::Create(CFSTR filename, DWORD dwDesiredAccess,
+    DWORD dwShareMode, DWORD dwCreationDisposition, DWORD dwFlagsAndAttributes,bool ignoreSymbolicLink)
+{
+  Close();
   
-  folder\:stream -  ERROR_INVALID_NAME
-  folder:stream  -  OK
+  int   flags = 0;
+#ifdef USE_UNICODE_FSTRING
+   AString astr = UnicodeStringToMultiByte(filename);
+   const char * name = nameWindowToUnix((const char *)astr);
+#else
+  const char * name = nameWindowToUnix(filename);
+#endif
 
-  c:\:stream     -  OK
+#ifdef O_BINARY
+  flags |= O_BINARY;
+#endif
 
-  c::stream      -  ERROR_INVALID_NAME, if current dir is NOT ROOT ( c:\dir1 )
-  c::stream      -  OK,                 if current dir is ROOT     ( c:\ )
+#ifdef O_LARGEFILE
+  flags |= O_LARGEFILE;
+#endif
+
+  /* now use the umask value */
+  int mask = umask(0);
+  (void)umask(mask);
+  int mode = 0666 & ~(mask & 066); /* keep the R/W for the user */
+
+  if (dwDesiredAccess & GENERIC_WRITE) flags |= O_WRONLY;
+  if (dwDesiredAccess & GENERIC_READ)  flags |= O_RDONLY;
+
+
+  switch (dwCreationDisposition)
+  {
+    case CREATE_NEW    : flags |= O_CREAT | O_EXCL; break;
+    case CREATE_ALWAYS : flags |= O_CREAT;          break;
+    case OPEN_EXISTING :                            break;
+    case OPEN_ALWAYS   : flags |= O_CREAT;          break;
+    // case TRUNCATE_EXISTING : flags |= O_TRUNC;      break;
+  }
+  // printf("##DBG open(%s,0x%x,%o)##\n",name,flags,(unsigned)mode);
+
+  _fd = -1;
+#ifdef ENV_HAVE_LSTAT
+   if ((global_use_lstat) && (ignoreSymbolicLink == false))
+   {
+     _size = readlink(name, _buffer, sizeof(_buffer)-1);
+     if (_size > 0) {
+       if (dwDesiredAccess & GENERIC_READ) {
+         _fd = FD_LINK;
+         _offset = 0;
+         _buffer[_size]=0;
+       } else if (dwDesiredAccess & GENERIC_WRITE) {
+         // does not overwrite the file pointed by symbolic link
+         if (!unlink(name)) return false;
+       }
+     }
+  }
+#endif
+
+  if (_fd == -1) {
+    _fd = open(name,flags, mode);
+  }
+
+  if ((_fd == -1) && (global_use_utf16_conversion)) {
+    // bug #1204993 - Try to recover the original filename
+    UString ustr = MultiByteToUnicodeString(AString(name), 0);
+    AString resultString;
+    int is_good = 1;
+    for (int i = 0; i < ustr.Len(); i++)
+    {
+      if (ustr[i] >= 256) {
+        is_good = 0;
+        break;
+      } else {
+        resultString += char(ustr[i]);
+      }
+    }
+    if (is_good) {
+      _fd = open((const char *)resultString,flags, mode);
+    }
+  }
+
+  if (_fd == -1) {
+    /* !ENV_HAVE_LSTAT : an invalid symbolic link => errno == ENOENT */
+    return false;
+  } else {
+    _unix_filename = name;
+  }
+
+  return true;
+}
+
+/* FIXME
+bool CFileBase::Create(LPCWSTR fileName, DWORD desiredAccess,
+    DWORD shareMode, DWORD creationDisposition, DWORD flagsAndAttributes,bool ignoreSymbolicLink)
+{
+  Close();
+    return Create(UnicodeStringToMultiByte(fileName, CP_ACP), 
+      desiredAccess, shareMode, creationDisposition, flagsAndAttributes,ignoreSymbolicLink);
+}
 */
 
-bool CFileBase::Create(CFSTR path, DWORD desiredAccess,
-    DWORD shareMode, DWORD creationDisposition, DWORD flagsAndAttributes)
+bool CFileBase::Close()
 {
-  if (!Close())
-    return false;
+  struct utimbuf buf;
 
-  #ifdef SUPPORT_DEVICE_FILE
-  IsDeviceFile = false;
-  #endif
+  buf.actime  = _lastAccessTime;
+  buf.modtime = _lastWriteTime;
 
-  #ifndef _UNICODE
-  if (!g_IsNT)
-  {
-    _handle = ::CreateFile(fs2fas(path), desiredAccess, shareMode,
-        (LPSECURITY_ATTRIBUTES)NULL, creationDisposition, flagsAndAttributes, (HANDLE)NULL);
+  _lastAccessTime = _lastWriteTime = (time_t)-1;
+
+  if(_fd == -1)
+    return true;
+
+#ifdef ENV_HAVE_LSTAT
+  if(_fd == FD_LINK) {
+    _fd = -1;
+    return true;
   }
-  else
-  #endif
-  {
-    IF_USE_MAIN_PATH
-      _handle = ::CreateFileW(fs2us(path), desiredAccess, shareMode,
-        (LPSECURITY_ATTRIBUTES)NULL, creationDisposition, flagsAndAttributes, (HANDLE)NULL);
-    #ifdef WIN_LONG_PATH
-    if (_handle == INVALID_HANDLE_VALUE && USE_SUPER_PATH)
-    {
-      UString superPath;
-      if (GetSuperPath(path, superPath, USE_MAIN_PATH))
-        _handle = ::CreateFileW(superPath, desiredAccess, shareMode,
-            (LPSECURITY_ATTRIBUTES)NULL, creationDisposition, flagsAndAttributes, (HANDLE)NULL);
+#endif
+
+  int ret = ::close(_fd);
+  if (ret == 0) {
+    _fd = -1;
+
+    /* On some OS (mingwin, MacOSX ...), you must close the file before updating times */
+    if ((buf.actime != (time_t)-1) || (buf.modtime != (time_t)-1)) {
+      struct stat    oldbuf;
+      int ret = stat((const char*)(_unix_filename),&oldbuf);
+      if (ret == 0) {
+        if (buf.actime  == (time_t)-1) buf.actime  = oldbuf.st_atime;
+        if (buf.modtime == (time_t)-1) buf.modtime = oldbuf.st_mtime;
+      } else {
+        time_t current_time = time(0);
+        if (buf.actime  == (time_t)-1) buf.actime  = current_time;
+        if (buf.modtime == (time_t)-1) buf.modtime = current_time;
+      }
+      /* ret = */ utime((const char *)(_unix_filename), &buf);
     }
-    #endif
+    return true;
   }
-  return (_handle != INVALID_HANDLE_VALUE);
+  return false;
 }
 
-bool CFileBase::Close() throw()
+bool CFileBase::GetLength(UINT64 &length) const
 {
-  if (_handle == INVALID_HANDLE_VALUE)
+  if (_fd == -1)
+  {
+     SetLastError( ERROR_INVALID_HANDLE );
+     return false;
+  }
+
+#ifdef ENV_HAVE_LSTAT  
+  if (_fd == FD_LINK) {
+    length = _size;
     return true;
-  if (!::CloseHandle(_handle))
+  }
+#endif
+
+  off_t pos_cur = ::lseek(_fd, 0, SEEK_CUR);
+  if (pos_cur == (off_t)-1)
     return false;
-  _handle = INVALID_HANDLE_VALUE;
+
+  off_t pos_end = ::lseek(_fd, 0, SEEK_END);
+  if (pos_end == (off_t)-1)
+    return false;
+
+  off_t pos_cur2 = ::lseek(_fd, pos_cur, SEEK_SET);
+  if (pos_cur2 == (off_t)-1)
+    return false;
+
+  length = (UINT64)pos_end;
+
   return true;
 }
 
-bool CFileBase::GetPosition(UInt64 &position) const throw()
+bool CFileBase::Seek(INT64 distanceToMove, DWORD moveMethod, UINT64 &newPosition)
 {
-  return Seek(0, FILE_CURRENT, position);
-}
-
-bool CFileBase::GetLength(UInt64 &length) const throw()
-{
-  #ifdef SUPPORT_DEVICE_FILE
-  if (IsDeviceFile && SizeDefined)
+  if (_fd == -1)
   {
-    length = Size;
+     SetLastError( ERROR_INVALID_HANDLE );
+     return false;
+  }
+
+#ifdef ENV_HAVE_LSTAT
+  if (_fd == FD_LINK) {
+    INT64 offset;
+    switch (moveMethod) {
+    case STREAM_SEEK_SET : offset = distanceToMove; break;
+    case STREAM_SEEK_CUR : offset = _offset + distanceToMove; break;
+    case STREAM_SEEK_END : offset = _size + distanceToMove; break;
+    default :  offset = -1;
+    }
+    if (offset < 0) {
+      SetLastError( EINVAL );
+      return false;
+    }
+    if (offset > _size) offset = _size;
+    newPosition = _offset = offset;
     return true;
   }
-  #endif
+#endif
 
-  DWORD sizeHigh;
-  DWORD sizeLow = ::GetFileSize(_handle, &sizeHigh);
-  if (sizeLow == 0xFFFFFFFF)
-    if (::GetLastError() != NO_ERROR)
-      return false;
-  length = (((UInt64)sizeHigh) << 32) + sizeLow;
-  return true;
-}
+  bool ret = true;
 
-bool CFileBase::Seek(Int64 distanceToMove, DWORD moveMethod, UInt64 &newPosition) const throw()
-{
-  #ifdef SUPPORT_DEVICE_FILE
-  if (IsDeviceFile && SizeDefined && moveMethod == FILE_END)
-  {
-    distanceToMove += Size;
-    moveMethod = FILE_BEGIN;
+  off_t pos = (off_t)distanceToMove;
+
+  off_t newpos = ::lseek(_fd,pos,moveMethod);
+
+  if (newpos == ((off_t)-1)) {
+    ret = false;
+  } else {
+    newPosition = (UINT64)newpos;
   }
-  #endif
 
-  LONG high = (LONG)(distanceToMove >> 32);
-  DWORD low = ::SetFilePointer(_handle, (LONG)(distanceToMove & 0xFFFFFFFF), &high, moveMethod);
-  if (low == 0xFFFFFFFF)
-    if (::GetLastError() != NO_ERROR)
-      return false;
-  newPosition = (((UInt64)(UInt32)high) << 32) + low;
-  return true;
+  return ret;
 }
 
-bool CFileBase::Seek(UInt64 position, UInt64 &newPosition) const throw()
+bool CFileBase::Seek(UINT64 position, UINT64 &newPosition)
 {
   return Seek(position, FILE_BEGIN, newPosition);
 }
 
-bool CFileBase::SeekToBegin() const throw()
+/////////////////////////
+// CInFile
+
+bool CInFile::Open(CFSTR fileName, DWORD shareMode, 
+    DWORD creationDisposition,  DWORD flagsAndAttributes)
 {
-  UInt64 newPosition;
-  return Seek(0, newPosition);
+  return Create(fileName, GENERIC_READ, shareMode, 
+      creationDisposition, flagsAndAttributes);
 }
 
-bool CFileBase::SeekToEnd(UInt64 &newPosition) const throw()
+bool CInFile::Open(CFSTR fileName,bool ignoreSymbolicLink)
 {
-  return Seek(0, FILE_END, newPosition);
+  return Create(fileName, GENERIC_READ , FILE_SHARE_READ, OPEN_EXISTING, 
+     FILE_ATTRIBUTE_NORMAL,ignoreSymbolicLink);
 }
-
-// ---------- CInFile ---------
-
-#ifdef SUPPORT_DEVICE_FILE
-
-void CInFile::CorrectDeviceSize()
-{
-  // maybe we must decrease kClusterSize to 1 << 12, if we want correct size at tail
-  static const UInt32 kClusterSize = 1 << 14;
-  UInt64 pos = Size & ~(UInt64)(kClusterSize - 1);
-  UInt64 realNewPosition;
-  if (!Seek(pos, realNewPosition))
-    return;
-  Byte *buf = (Byte *)MidAlloc(kClusterSize);
-
-  bool needbackward = true;
-
-  for (;;)
-  {
-    UInt32 processed = 0;
-    // up test is slow for "PhysicalDrive".
-    // processed size for latest block for "PhysicalDrive0" is 0.
-    if (!Read1(buf, kClusterSize, processed))
-      break;
-    if (processed == 0)
-      break;
-    needbackward = false;
-    Size = pos + processed;
-    if (processed != kClusterSize)
-      break;
-    pos += kClusterSize;
-  }
-
-  if (needbackward && pos != 0)
-  {
-    pos -= kClusterSize;
-    for (;;)
-    {
-      // break;
-      if (!Seek(pos, realNewPosition))
-        break;
-      if (!buf)
-      {
-        buf = (Byte *)MidAlloc(kClusterSize);
-        if (!buf)
-          break;
-      }
-      UInt32 processed = 0;
-      // that code doesn't work for "PhysicalDrive0"
-      if (!Read1(buf, kClusterSize, processed))
-        break;
-      if (processed != 0)
-      {
-        Size = pos + processed;
-        break;
-      }
-      if (pos == 0)
-        break;
-      pos -= kClusterSize;
-    }
-  }
-  MidFree(buf);
-}
-
-
-void CInFile::CalcDeviceSize(CFSTR s)
-{
-  SizeDefined = false;
-  Size = 0;
-  if (_handle == INVALID_HANDLE_VALUE || !IsDeviceFile)
-    return;
-  #ifdef UNDER_CE
-
-  SizeDefined = true;
-  Size = 128 << 20;
-  
-  #else
-  
-  PARTITION_INFORMATION partInfo;
-  bool needCorrectSize = true;
-
-  /*
-    WinXP 64-bit:
-
-    HDD \\.\PhysicalDrive0 (MBR):
-      GetPartitionInfo == GeometryEx :  corrrect size? (includes tail)
-      Geometry   :  smaller than GeometryEx (no tail, maybe correct too?)
-      MyGetDiskFreeSpace : FAIL
-      Size correction is slow and block size (kClusterSize) must be small?
-
-    HDD partition \\.\N: (NTFS):
-      MyGetDiskFreeSpace   :  Size of NTFS clusters. Same size can be calculated after correction
-      GetPartitionInfo     :  size of partition data: NTFS clusters + TAIL; TAIL contains extra empty sectors and copy of first sector of NTFS
-      Geometry / CdRomGeometry / GeometryEx :  size of HDD (not that partition)
-
-    CD-ROM drive (ISO):
-      MyGetDiskFreeSpace   :  correct size. Same size can be calculated after correction
-      Geometry == CdRomGeometry  :  smaller than corrrect size
-      GetPartitionInfo == GeometryEx :  larger than corrrect size
-
-    Floppy \\.\a: (FAT):
-      Geometry :  correct size.
-      CdRomGeometry / GeometryEx / GetPartitionInfo / MyGetDiskFreeSpace - FAIL
-      correction works OK for FAT.
-      correction works OK for non-FAT, if kClusterSize = 512.
-  */
-
-  if (GetPartitionInfo(&partInfo))
-  {
-    Size = partInfo.PartitionLength.QuadPart;
-    SizeDefined = true;
-    needCorrectSize = false;
-    if ((s)[0] == '\\' && (s)[1] == '\\' && (s)[2] == '.' && (s)[3] == '\\' && (s)[5] == ':' && (s)[6] == 0)
-    {
-      FChar path[4] = { s[4], ':', '\\', 0 };
-      UInt64 clusterSize, totalSize, freeSize;
-      if (NSystem::MyGetDiskFreeSpace(path, clusterSize, totalSize, freeSize))
-        Size = totalSize;
-      else
-        needCorrectSize = true;
-    }
-  }
-  
-  if (!SizeDefined)
-  {
-    my_DISK_GEOMETRY_EX geomEx;
-    SizeDefined = GetGeometryEx(&geomEx);
-    if (SizeDefined)
-      Size = geomEx.DiskSize.QuadPart;
-    else
-    {
-      DISK_GEOMETRY geom;
-      SizeDefined = GetGeometry(&geom);
-      if (!SizeDefined)
-        SizeDefined = GetCdRomGeometry(&geom);
-      if (SizeDefined)
-        Size = geom.Cylinders.QuadPart * geom.TracksPerCylinder * geom.SectorsPerTrack * geom.BytesPerSector;
-    }
-  }
-  
-  if (needCorrectSize && SizeDefined && Size != 0)
-  {
-    CorrectDeviceSize();
-    SeekToBegin();
-  }
-
-  // SeekToBegin();
-  #endif
-}
-
-// ((desiredAccess & (FILE_WRITE_DATA | FILE_APPEND_DATA | GENERIC_WRITE)) == 0 &&
-
-#define MY_DEVICE_EXTRA_CODE \
-  IsDeviceFile = IsDevicePath(fileName); \
-  CalcDeviceSize(fileName);
-#else
-#define MY_DEVICE_EXTRA_CODE
-#endif
-
-bool CInFile::Open(CFSTR fileName, DWORD shareMode, DWORD creationDisposition, DWORD flagsAndAttributes)
-{
-  bool res = Create(fileName, GENERIC_READ, shareMode, creationDisposition, flagsAndAttributes);
-  MY_DEVICE_EXTRA_CODE
-  return res;
-}
-
-bool CInFile::OpenShared(CFSTR fileName, bool shareForWrite)
-{ return Open(fileName, FILE_SHARE_READ | (shareForWrite ? FILE_SHARE_WRITE : 0), OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL); }
-
-bool CInFile::Open(CFSTR fileName)
-  { return OpenShared(fileName, false); }
 
 // ReadFile and WriteFile functions in Windows have BUG:
-// If you Read or Write 64MB or more (probably min_failure_size = 64MB - 32KB + 1)
-// from/to Network file, it returns ERROR_NO_SYSTEM_RESOURCES
+// If you Read or Write 64MB or more (probably min_failure_size = 64MB - 32KB + 1) 
+// from/to Network file, it returns ERROR_NO_SYSTEM_RESOURCES 
 // (Insufficient system resources exist to complete the requested service).
 
-// Probably in some version of Windows there are problems with other sizes:
-// for 32 MB (maybe also for 16 MB).
-// And message can be "Network connection was lost"
+// static UINT32 kChunkSizeMax = (1 << 24);
 
-static UInt32 kChunkSizeMax = (1 << 22);
-
-bool CInFile::Read1(void *data, UInt32 size, UInt32 &processedSize) throw()
+bool CInFile::ReadPart(void *data, UINT32 size, UINT32 &processedSize)
 {
-  DWORD processedLoc = 0;
-  bool res = BOOLToBool(::ReadFile(_handle, data, size, &processedLoc, NULL));
-  processedSize = (UInt32)processedLoc;
-  return res;
+  // if (size > kChunkSizeMax)
+  //  size = kChunkSizeMax;
+  return Read(data,size,processedSize);
 }
 
-bool CInFile::ReadPart(void *data, UInt32 size, UInt32 &processedSize) throw()
+bool CInFile::Read(void *buffer, UINT32 bytesToRead, UINT32 &bytesRead)
 {
-  if (size > kChunkSizeMax)
-    size = kChunkSizeMax;
-  return Read1(data, size, processedSize);
-}
-
-bool CInFile::Read(void *data, UInt32 size, UInt32 &processedSize) throw()
-{
-  processedSize = 0;
-  do
+  if (_fd == -1)
   {
-    UInt32 processedLoc = 0;
-    bool res = ReadPart(data, size, processedLoc);
-    processedSize += processedLoc;
-    if (!res)
-      return false;
-    if (processedLoc == 0)
-      return true;
-    data = (void *)((unsigned char *)data + processedLoc);
-    size -= processedLoc;
+     SetLastError( ERROR_INVALID_HANDLE );
+     return false;
   }
-  while (size > 0);
-  return true;
+
+  if (bytesToRead == 0) {
+    bytesRead =0;
+    return TRUE;
+  }
+
+#ifdef ENV_HAVE_LSTAT
+  if (_fd == FD_LINK) {
+    if (_offset >= _size) {
+      bytesRead = 0;
+      return TRUE;
+    }
+    int len = (_size - _offset);
+    if (len > bytesToRead) len = bytesToRead;
+    memcpy(buffer,_buffer+_offset,len);
+    bytesRead = len;
+    _offset += len;
+    return TRUE;
+  }
+#endif
+
+  ssize_t  ret;
+  do {
+    ret = read(_fd,buffer,bytesToRead);
+  } while (ret < 0 && (errno == EINTR));
+
+  if (ret != -1) {
+    bytesRead = ret;
+    return TRUE;
+  }
+  bytesRead =0;
+  return FALSE;
 }
 
-// ---------- COutFile ---------
+/////////////////////////
+// COutFile
+
+bool COutFile::Open(CFSTR fileName, DWORD shareMode, 
+    DWORD creationDisposition, DWORD flagsAndAttributes)
+{
+  return CFileBase::Create(fileName, GENERIC_WRITE, shareMode, 
+      creationDisposition, flagsAndAttributes);
+}
 
 static inline DWORD GetCreationDisposition(bool createAlways)
-  { return createAlways? CREATE_ALWAYS: CREATE_NEW; }
-
-bool COutFile::Open(CFSTR fileName, DWORD shareMode, DWORD creationDisposition, DWORD flagsAndAttributes)
-  { return CFileBase::Create(fileName, GENERIC_WRITE, shareMode, creationDisposition, flagsAndAttributes); }
+  {  return createAlways? CREATE_ALWAYS: CREATE_NEW; }
 
 bool COutFile::Open(CFSTR fileName, DWORD creationDisposition)
-  { return Open(fileName, FILE_SHARE_READ, creationDisposition, FILE_ATTRIBUTE_NORMAL); }
-
-bool COutFile::Create(CFSTR fileName, bool createAlways)
-  { return Open(fileName, GetCreationDisposition(createAlways)); }
-
-bool COutFile::CreateAlways(CFSTR fileName, DWORD flagsAndAttributes)
-  { return Open(fileName, FILE_SHARE_READ, GetCreationDisposition(true), flagsAndAttributes); }
-
-bool COutFile::SetTime(const FILETIME *cTime, const FILETIME *aTime, const FILETIME *mTime) throw()
-  { return BOOLToBool(::SetFileTime(_handle, cTime, aTime, mTime)); }
-
-bool COutFile::SetMTime(const FILETIME *mTime) throw() {  return SetTime(NULL, NULL, mTime); }
-
-bool COutFile::WritePart(const void *data, UInt32 size, UInt32 &processedSize) throw()
 {
-  if (size > kChunkSizeMax)
-    size = kChunkSizeMax;
-  DWORD processedLoc = 0;
-  bool res = BOOLToBool(::WriteFile(_handle, data, size, &processedLoc, NULL));
-  processedSize = (UInt32)processedLoc;
-  return res;
+  return Open(fileName, FILE_SHARE_READ, 
+      creationDisposition, FILE_ATTRIBUTE_NORMAL);
 }
 
-bool COutFile::Write(const void *data, UInt32 size, UInt32 &processedSize) throw()
+bool COutFile::Create(CFSTR fileName, bool createAlways)
 {
-  processedSize = 0;
-  do
-  {
-    UInt32 processedLoc = 0;
-    bool res = WritePart(data, size, processedLoc);
-    processedSize += processedLoc;
-    if (!res)
-      return false;
-    if (processedLoc == 0)
-      return true;
-    data = (const void *)((const unsigned char *)data + processedLoc);
-    size -= processedLoc;
+  return Open(fileName, GetCreationDisposition(createAlways));
+}
+
+bool COutFile::CreateAlways(CFSTR fileName, DWORD /* flagsAndAttributes */ )
+{
+  return Open(fileName, true); // FIXME
+}
+
+bool COutFile::SetTime(const FILETIME *cTime, const FILETIME *aTime, const FILETIME *mTime) throw()
+{
+  LARGE_INTEGER  ltime;
+  DWORD dw;
+
+  if (_fd == -1) {
+     SetLastError( ERROR_INVALID_HANDLE );
+     return false;
   }
-  while (size > 0);
+
+  /* On some OS (cygwin, MacOSX ...), you must close the file before updating times */
+  if (aTime) {
+     ltime.QuadPart = aTime->dwHighDateTime;
+     ltime.QuadPart = (ltime.QuadPart << 32) | aTime->dwLowDateTime;
+     RtlTimeToSecondsSince1970( &ltime, &dw );
+     _lastAccessTime = dw;
+  }
+  if (mTime) {
+     ltime.QuadPart = mTime->dwHighDateTime;
+     ltime.QuadPart = (ltime.QuadPart << 32) | mTime->dwLowDateTime;
+     RtlTimeToSecondsSince1970( &ltime, &dw );
+     _lastWriteTime = dw;
+  }
+
   return true;
 }
 
-bool COutFile::SetEndOfFile() throw() { return BOOLToBool(::SetEndOfFile(_handle)); }
-
-bool COutFile::SetLength(UInt64 length) throw()
+bool COutFile::SetMTime(const FILETIME *mTime) throw()
 {
-  UInt64 newPosition;
-  if (!Seek(length, newPosition))
+  return SetTime(NULL, NULL, mTime);
+}
+
+bool COutFile::WritePart(const void *data, UINT32 size, UINT32 &processedSize) throw()
+{
+//  if (size > kChunkSizeMax)
+//    size = kChunkSizeMax;
+
+  return Write(data,size,processedSize);
+}
+
+bool COutFile::Write(const void *buffer, UINT32 bytesToWrite, UINT32 &bytesWritten) throw()
+{
+  if (_fd == -1)
+  {
+     SetLastError( ERROR_INVALID_HANDLE );
+     return false;
+  }
+
+  ssize_t  ret;
+  do {
+    ret = write(_fd,buffer, bytesToWrite);
+  } while (ret < 0 && (errno == EINTR));
+
+  if (ret != -1) {
+    bytesWritten = ret;
+    return TRUE;
+  }
+  bytesWritten =0;
+  return FALSE;
+}
+
+bool COutFile::SetEndOfFile() throw()
+{
+  if (_fd == -1)
+  {
+     SetLastError( ERROR_INVALID_HANDLE );
+     return false;
+  }
+
+  bool bret = false;
+
+  off_t pos_cur = lseek(_fd, 0, SEEK_CUR);
+  if (pos_cur != (off_t)-1) {
+    int iret = ftruncate(_fd, pos_cur);
+    if (iret == 0) bret = true;
+  }
+
+  return bret;
+}
+
+bool COutFile::SetLength(UINT64 length) throw()
+{
+  UINT64 newPosition;
+  if(!Seek(length, newPosition))
     return false;
-  if (newPosition != length)
+  if(newPosition != length)
     return false;
   return SetEndOfFile();
 }

@@ -51,6 +51,7 @@ bool CSplitDialog::OnInit()
 
 bool CSplitDialog::OnSize(WPARAM /* wParam */, int xSize, int ySize)
 {
+#ifdef _WIN32
   int mx, my;
   GetMargins(8, mx, my);
   int bx1, bx2, by;
@@ -71,7 +72,7 @@ bool CSplitDialog::OnSize(WPARAM /* wParam */, int xSize, int ySize)
 
   MoveItem(IDCANCEL, xPos, yPos, bx1, by);
   MoveItem(IDOK, xPos - mx - bx2, yPos, bx2, by);
-
+#endif
   return false;
 }
 

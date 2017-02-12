@@ -7,6 +7,7 @@
 
 typedef int HRes;
 
+#ifdef __cplusplus
 struct CBoolPair
 {
   bool Val;
@@ -31,5 +32,7 @@ struct CBoolPair
   private: \
   cls(const cls &); \
   cls &operator=(const cls &);
+
+#endif
 
 #endif

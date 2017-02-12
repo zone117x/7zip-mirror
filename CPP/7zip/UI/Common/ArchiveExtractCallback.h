@@ -6,6 +6,8 @@
 #include "../../../Common/MyCom.h"
 #include "../../../Common/Wildcard.h"
 
+#include "../../../Windows/FileDir.h"
+
 #include "../../IPassword.h"
 
 #include "../../Common/FileStreams.h"
@@ -84,7 +86,7 @@ public:
 
 #endif
 
-#ifndef _SFX
+#if 0 // FIXME #ifndef _SFX
 #ifndef UNDER_CE
 
 #define SUPPORT_LINKS
@@ -237,6 +239,8 @@ class CArchiveExtractCallback:
   bool _saclEnabled;
   #endif
 
+  CObjectVector<NWindows::NFile::NDir::CDelayedSymLink> _delayedSymLinks;
+  
   void CreateComplexDirectory(const UStringVector &dirPathParts, FString &fullPath);
   HRESULT GetTime(int index, PROPID propID, FILETIME &filetime, bool &filetimeIsDefined);
   HRESULT GetUnpackSize();

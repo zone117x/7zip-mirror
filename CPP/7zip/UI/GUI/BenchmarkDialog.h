@@ -109,6 +109,7 @@ public:
   void WaitCreating() { _startEvent.Lock(); }
 };
 
+#ifdef _WIN32
 struct CMyFont
 {
   HFONT _font;
@@ -123,6 +124,12 @@ struct CMyFont
     _font = CreateFontIndirect(lplf);
   }
 };
+#else
+struct CMyFont
+{
+  CMyFont() {}
+};
+#endif
 
 
 class CBenchmarkDialog:
@@ -175,6 +182,6 @@ public:
 
 HRESULT Benchmark(
     DECL_EXTERNAL_CODECS_LOC_VARS
-    const CObjectVector<CProperty> &props, HWND hwndParent = NULL);
+    const CObjectVector<CProperty> props, HWND hwndParent = NULL);
 
 #endif

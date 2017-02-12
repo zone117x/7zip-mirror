@@ -2,6 +2,19 @@
 
 #include "StdAfx.h"
 
+// For compilers that support precompilation, includes "wx/wx.h".
+#include "wx/wxprec.h"
+
+#ifdef __BORLANDC__
+#pragma hdrstop
+#endif
+
+#ifndef WX_PRECOMP
+#include "wx/wx.h"
+#endif
+
+#undef _WIN32
+
 #include <wchar.h>
 
 #include "../../../Common/IntToString.h"
@@ -12,8 +25,8 @@
 #include "../../../Windows/DLL.h"
 #include "../../../Windows/ErrorMsg.h"
 #include "../../../Windows/FileDir.h"
-#include "../../../Windows/FileMapping.h"
-#include "../../../Windows/ProcessUtils.h"
+// #include "../../../Windows/FileMapping.h"
+// #include "../../../Windows/ProcessUtils.h"
 #include "../../../Windows/Synchronization.h"
 
 #include "../FileManager/RegistryUtils.h"
@@ -30,7 +43,11 @@ using namespace NWindows;
 #define MY_TRY_FINISH_VOID } \
   catch(...) { ErrorMessageHRESULT(E_FAIL); }
 
+#ifdef _WIN32
 static const char *k7zGui = "7zG.exe";
+#else
+static const char *k7zGui = "7zG";
+#endif
 
 static const char *kShowDialogSwitch = " -ad";
 static const char *kEmailSwitch = " -seml.";
@@ -75,6 +92,7 @@ static HRESULT Call7zGui(const UString &params,
   UString imageName = fs2us(NWindows::NDLL::GetModuleDirPrefix());
   imageName.AddAscii(k7zGui);
 
+#ifdef _WIN32
   CProcess process;
   WRes res = process.Create(imageName, params, NULL); // curDir);
   if (res != 0)
@@ -89,6 +107,54 @@ static HRESULT Call7zGui(const UString &params,
     HANDLE handles[] = { process, *event };
     ::WaitForMultipleObjects(ARRAY_SIZE(handles), handles, FALSE, INFINITE);
   }
+#else
+	printf("MyCreateProcess: waitFinish=%d event=%p\n",(unsigned)waitFinish,event);
+	printf("\timageName : %ls\n",(const wchar_t*)imageName);
+	printf("\tparams : %ls\n",(const wchar_t*)params);
+	// printf("\tcurDir : %ls\n",(const wchar_t*)curDir);
+
+	wxString cmd;
+	cmd = (const wchar_t*)imageName;
+	cmd += L" ";
+	cmd += (const wchar_t*)params;
+	wxString memoCurDir = wxGetCwd();
+
+/*
+	if (curDir) {  // FIXME
+		wxSetWorkingDirectory(wxString(curDir));
+
+
+		// under MacOSX, a bundle does not keep the current directory
+		// between 7zFM and 7zG ...
+		// So, try to use the environment variable P7ZIP_CURRENT_DIR
+
+		char p7zip_current_dir[MAX_PATH];
+
+		AString aCurPath = GetAnsiString(curDir);
+
+		const char *dir2 = nameWindowToUnix((const char *)aCurPath);
+
+		snprintf(p7zip_current_dir,sizeof(p7zip_current_dir),"P7ZIP_CURRENT_DIR=%s/",dir2);
+
+		p7zip_current_dir[sizeof(p7zip_current_dir)-1] = 0;
+
+		putenv(p7zip_current_dir);
+
+		printf("putenv(%s)\n",p7zip_current_dir);
+
+	}
+*/
+
+	printf("MyCreateProcess: cmd='%ls'\n",(const wchar_t *)cmd);
+	long pid = 0;
+	if (waitFinish) pid = wxExecute(cmd, wxEXEC_SYNC); // FIXME process never ends and stays zombie ...
+	else            pid = wxExecute(cmd, wxEXEC_ASYNC);
+
+//	if (curDir) wxSetWorkingDirectory(memoCurDir);
+
+
+	// FIXME if (pid == 0) return E_FAIL;
+#endif
   return S_OK;
 }
 
@@ -112,6 +178,7 @@ public:
   }
 };
 
+#ifdef _WIN32
 static HRESULT CreateMap(const UStringVector &names,
     CFileMapping &fileMapping, NSynchronization::CManualResetEvent &event,
     UString &params)
@@ -177,6 +244,7 @@ static HRESULT CreateMap(const UStringVector &names,
   }
   return S_OK;
 }
+#endif
 
 HRESULT CompressFiles(
     const UString &arcPathPrefix,
@@ -189,10 +257,31 @@ HRESULT CompressFiles(
   MY_TRY_BEGIN
   UString params = L'a';
   
+#ifdef _WIN32
   CFileMapping fileMapping;
   NSynchronization::CManualResetEvent event;
   params.AddAscii(kIncludeSwitch);
   RINOK(CreateMap(names, fileMapping, event, params));
+#else
+  NSynchronization::CManualResetEvent event;
+  char tempFile[256];
+  static int count = 1000;
+
+  sprintf(tempFile,"/tmp/7zCompress_%d_%d.tmp",(int)getpid(),count++);
+
+  FILE * file = fopen(tempFile,"w");
+  if (file)
+  {
+    for (int i = 0; i < names.Size(); i++) {
+	  fprintf(file,"%ls\n",(const wchar_t *)names[i]);
+	  printf(" TMP_%d : '%ls'\n",i,(const wchar_t *)names[i]);
+   }
+
+    fclose(file);
+  }
+  params += L" -i@";
+  params += GetUnicodeString(tempFile);
+#endif
 
   if (!arcType.IsEmpty())
   {
@@ -238,6 +327,7 @@ static void ExtractGroupCommand(const UStringVector &arcPaths, UString &params, 
 {
   AddLagePagesSwitch(params);
   params.AddAscii(isHash ? kHashIncludeSwitches : kArcIncludeSwitches);
+#ifdef _WIN32
   CFileMapping fileMapping;
   NSynchronization::CManualResetEvent event;
   HRESULT result = CreateMap(arcPaths, fileMapping, event, params);
@@ -245,6 +335,34 @@ static void ExtractGroupCommand(const UStringVector &arcPaths, UString &params, 
     result = Call7zGui(params, false, &event);
   if (result != S_OK)
     ErrorMessageHRESULT(result);
+#else
+  HRESULT result = S_OK;
+  NSynchronization::CManualResetEvent event;
+  char tempFile[256];
+  static int count = 1000;
+
+  sprintf(tempFile,"/tmp/7zExtract_%d_%d.tmp",(int)getpid(),count++);
+
+  FILE * file = fopen(tempFile,"w");
+  if (file)
+  {
+    for (int i = 0; i <  arcPaths.Size(); i++) {
+	  fprintf(file,"%ls\n",(const wchar_t *)arcPaths[i]);
+	  printf(" TMP_%d : '%ls'\n",i,(const wchar_t *)arcPaths[i]);
+    }
+
+    fclose(file);
+  }
+  params += L"@";
+  params += GetUnicodeString(tempFile);
+  printf("ExtractGroupCommand : -%ls-\n",(const wchar_t *)params);
+  if (result == S_OK)
+    result = Call7zGui(params, true, &event);  // FIXME false => true
+  printf("ExtractGroupCommand : END\n");
+  remove(tempFile);
+  if (result != S_OK)
+    ErrorMessageHRESULT(result);
+#endif
 }
 
 void ExtractArchives(const UStringVector &arcPaths, const UString &outFolder, bool showDialog, bool elimDup)

@@ -3,10 +3,6 @@
 #ifndef __PANEL_H
 #define __PANEL_H
 
-#include "../../../Common/MyWindows.h"
-
-#include <ShlObj.h>
-
 #include "../../../../C/Alloc.h"
 
 #include "../../../Common/Defs.h"
@@ -16,16 +12,16 @@
 #include "../../../Windows/FileDir.h"
 #include "../../../Windows/FileFind.h"
 #include "../../../Windows/FileName.h"
-#include "../../../Windows/Handle.h"
+// #include "../../../Windows/Handle.h"
 #include "../../../Windows/Synchronization.h"
 
 #include "../../../Windows/Control/ComboBox.h"
 #include "../../../Windows/Control/Edit.h"
 #include "../../../Windows/Control/ListView.h"
-#include "../../../Windows/Control/ReBar.h"
+// FIXME #include "../../../Windows/Control/ReBar.h"
 #include "../../../Windows/Control/Static.h"
 #include "../../../Windows/Control/StatusBar.h"
-#include "../../../Windows/Control/ToolBar.h"
+// FIXME #include "../../../Windows/Control/ToolBar.h"
 #include "../../../Windows/Control/Window2.h"
 
 #include "../../Archive/IArchive.h"
@@ -34,7 +30,7 @@
 
 #include "AppState.h"
 #include "IFolder.h"
-#include "MyCom2.h"
+// FIXME #include "MyCom2.h"
 #include "ProgressDialog2.h"
 #include "SysIconUtils.h"
 
@@ -57,7 +53,7 @@ const int kParentIndex = -1;
 struct CPanelCallback
 {
   virtual void OnTab() = 0;
-  virtual void SetFocusToPath(unsigned index) = 0;
+  virtual void SetFocusToPath(int index) = 0;
   virtual void OnCopy(bool move, bool copyToSame) = 0;
   virtual void OnSetSameFolder() = 0;
   virtual void OnSetSubFolder() = 0;
@@ -69,66 +65,30 @@ struct CPanelCallback
 
 void PanelCopyItems();
 
-
-struct CPropColumn
+struct CItemProperty
 {
-  int Order;
+  UString Name;
   PROPID ID;
   VARTYPE Type;
+  int Order;
   bool IsVisible;
   bool IsRawProp;
   UInt32 Width;
-  UString Name;
 
-  bool IsEqualTo(const CPropColumn &a) const
-  {
-    return Order == a.Order
-        && ID == a.ID
-        && Type == a.Type
-        && IsVisible == a.IsVisible
-        && IsRawProp == a.IsRawProp
-        && Width == a.Width
-        && Name == a.Name;
-  }
-
-  int Compare(const CPropColumn &a) const { return MyCompare(Order, a.Order); }
-
-  int Compare_NameFirst(const CPropColumn &a) const
-  {
-    if (ID == kpidName)
-    {
-      if (a.ID != kpidName)
-        return -1;
-    }
-    else if (a.ID == kpidName)
-      return 1;
-    return MyCompare(Order, a.Order);
-  }
+  int Compare(const CItemProperty &a) const { return MyCompare(Order, a.Order); }
 };
 
-
-class CPropColumns: public CObjectVector<CPropColumn>
+class CItemProperties: public CObjectVector<CItemProperty>
 {
 public:
-  int FindItem_for_PropID(PROPID id) const
+  int FindItemWithID(PROPID id)
   {
     FOR_VECTOR (i, (*this))
       if ((*this)[i].ID == id)
         return i;
     return -1;
   }
-
-  bool IsEqualTo(const CPropColumns &props) const
-  {
-    if (Size() != props.Size())
-      return false;
-    FOR_VECTOR (i, (*this))
-      if (!(*this)[i].IsEqualTo(props[i]))
-        return false;
-    return true;
-  }
 };
-
 
 struct CTempFileInfo
 {
@@ -222,7 +182,6 @@ struct CSelectedState
   UString FocusedName;
   bool SelectFocused;
   UStringVector SelectedNames;
-  
   CSelectedState(): FocusedItem(-1), SelectFocused(false) {}
 };
 
@@ -273,7 +232,7 @@ class CPanel: public NWindows::NControl::CWindow2
   bool OnCommand(int code, int itemID, LPARAM lParam, LRESULT &result);
   LRESULT OnMessage(UINT message, WPARAM wParam, LPARAM lParam);
   virtual bool OnCreate(CREATESTRUCT *createStruct);
-  virtual bool OnSize(WPARAM wParam, int xSize, int ySize);
+  // FIXME virtual bool OnSize(WPARAM wParam, int xSize, int ySize);
   virtual void OnDestroy();
   virtual bool OnNotify(UINT controlID, LPNMHDR lParam, LRESULT &result);
 
@@ -296,12 +255,14 @@ class CPanel: public NWindows::NControl::CWindow2
   void OnItemChanged(NMLISTVIEW *item);
   void OnNotifyActivateItems();
   bool OnNotifyList(LPNMHDR lParam, LRESULT &result);
+/* FIXME
   void OnDrag(LPNMLISTVIEW nmListView);
   bool OnKeyDown(LPNMLVKEYDOWN keyDownInfo, LRESULT &result);
   BOOL OnBeginLabelEdit(LV_DISPINFOW * lpnmh);
   BOOL OnEndLabelEdit(LV_DISPINFOW * lpnmh);
+*/
   void OnColumnClick(LPNMLISTVIEW info);
-  bool OnCustomDraw(LPNMLVCUSTOMDRAW lplvcd, LRESULT &result);
+  // FIXME bool OnCustomDraw(LPNMLVCUSTOMDRAW lplvcd, LRESULT &result);
 
 
 public:
@@ -321,8 +282,8 @@ private:
   void ChangeWindowSize(int xSize, int ySize);
  
   HRESULT InitColumns();
-  void DeleteColumn(unsigned index);
-  void AddColumn(const CPropColumn &prop);
+  // void InitColumns2(PROPID sortID);
+  void InsertColumn(unsigned index);
 
   void SetFocusedSelectedItem(int index, bool select);
   HRESULT RefreshListCtrl(const UString &focusedName, int focusedPos, bool selectFocused,
@@ -348,8 +309,8 @@ private:
   // CRecordVector<PROPID> m_ColumnsPropIDs;
 
 public:
-  NWindows::NControl::CReBar _headerReBar;
-  NWindows::NControl::CToolBar _headerToolBar;
+  // NWindows::NControl::CReBar _headerReBar;
+  // NWindows::NControl::CToolBar _headerToolBar;
   NWindows::NControl::
     #ifdef UNDER_CE
     CComboBox
@@ -361,7 +322,6 @@ public:
   // CMyComboBox _headerComboBox;
   CMyComboBoxEdit _comboBoxEdit;
   CMyListView _listView;
-  bool _thereAre_ListView_Items;
   NWindows::NControl::CStatusBar _statusBar;
   bool _lastFocusedIsList;
   // NWindows::NControl::CStatusBar _statusBar2;
@@ -378,20 +338,6 @@ public:
   CSelectedState _selectedState;
   bool _thereAreDeletedItems;
   bool _markDeletedItems;
-
-  bool PanelCreated;
-
-  void DeleteListItems()
-  {
-    if (_thereAre_ListView_Items)
-    {
-      bool b = _enableItemChangeNotify;
-      _enableItemChangeNotify = false;
-      _listView.DeleteAllItems();
-      _thereAre_ListView_Items = false;
-      _enableItemChangeNotify = b;
-    }
-  }
 
   HWND GetParent();
 
@@ -476,8 +422,8 @@ public:
   HRESULT BindToPathAndRefresh(const UString &path);
   void OpenDrivesFolder();
   
-  void SetBookmark(unsigned index);
-  void OpenBookmark(unsigned index);
+  void SetBookmark(int index);
+  void OpenBookmark(int index);
   
   void LoadFullPath();
   void LoadFullPathAndShow();
@@ -493,13 +439,12 @@ public:
       const UString &currentFolderPrefix,
       const UString &arcFormat,
       CPanelCallback *panelCallback,
-      CAppState *appState,
-      bool needOpenArc,
-      bool &archiveIsOpened, bool &encrypted);
+      CAppState *appState, bool &archiveIsOpened, bool &encrypted);
   void SetFocusToList();
   void SetFocusToLastRememberedItem();
 
 
+  void ReadListViewInfo();
   void SaveListViewInfo();
 
   CPanel() :
@@ -514,8 +459,6 @@ public:
       _flatMode(false),
       _flatModeForDisk(false),
       _flatModeForArc(false),
-      PanelCreated(false),
-      _thereAre_ListView_Items(false),
 
       // _showNtfsStrems_Mode(false),
       // _showNtfsStrems_ModeForDisk(false),
@@ -531,17 +474,18 @@ public:
 
   void SetExtendedStyle()
   {
+/* FIXME
     if (_listView != 0)
       _listView.SetExtendedListViewStyle(_exStyle);
+*/
   }
 
 
   bool _needSaveInfo;
   UString _typeIDString;
   CListViewInfo _listViewInfo;
-  
-  CPropColumns _columns;
-  CPropColumns _visibleColumns;
+  CItemProperties _properties;
+  CItemProperties _visibleProperties;
   
   PROPID _sortID;
   // int _sortIndex;
@@ -552,14 +496,15 @@ public:
 
   void Release();
   ~CPanel();
-  void OnLeftClick(MY_NMLISTVIEW_NMITEMACTIVATE *itemActivate);
-  bool OnRightClick(MY_NMLISTVIEW_NMITEMACTIVATE *itemActivate, LRESULT &result);
+  // FIXME void OnLeftClick(MY_NMLISTVIEW_NMITEMACTIVATE *itemActivate);
+  // FIXME bool OnRightClick(MY_NMLISTVIEW_NMITEMACTIVATE *itemActivate, LRESULT &result);
   void ShowColumnsContextMenu(int x, int y);
 
   void OnTimer();
   void OnReload();
   bool OnContextMenu(HANDLE windowHandle, int xPos, int yPos);
 
+#ifdef _WIN32
   CMyComPtr<IContextMenu> _sevenZipContextMenu;
   CMyComPtr<IContextMenu> _systemContextMenu;
   HRESULT CreateShellContextMenu(
@@ -579,6 +524,7 @@ public:
   bool InvokePluginCommand(int id);
   bool InvokePluginCommand(int id, IContextMenu *sevenZipContextMenu,
       IContextMenu *systemContextMenu);
+#endif
 
   void InvokeSystemCommand(const char *command);
   void Properties();
@@ -754,26 +700,15 @@ public:
 
   void OpenFolder(int index);
   HRESULT OpenParentArchiveFolder();
-  
-  HRESULT OpenAsArc(IInStream *inStream,
+  HRESULT OpenItemAsArchive(IInStream *inStream,
       const CTempFileInfo &tempFileInfo,
       const UString &virtualFilePath,
       const UString &arcFormat,
       bool &encrypted);
-
-  HRESULT OpenAsArc_Msg(IInStream *inStream,
-      const CTempFileInfo &tempFileInfo,
-      const UString &virtualFilePath,
-      const UString &arcFormat,
-      bool &encrypted,
-      bool showErrorMessage);
-  
-  HRESULT OpenAsArc_Name(const UString &relPath, const UString &arcFormat, bool &encrypted, bool showErrorMessage);
-  HRESULT OpenAsArc_Index(int index, const wchar_t *type /* = NULL */, bool showErrorMessage);
-  
+  HRESULT OpenItemAsArchive(const UString &relPath, const UString &arcFormat, bool &encrypted);
+  HRESULT OpenItemAsArchive(int index, const wchar_t *type = NULL);
   void OpenItemInArchive(int index, bool tryInternal, bool tryExternal,
       bool editMode, bool useEditor, const wchar_t *type = NULL);
-  
   HRESULT OnOpenItemChanged(UInt32 index, const wchar_t *fullFilePath, bool usePassword, const UString &password);
   LRESULT OnOpenItemChanged(LPARAM lParam);
 
@@ -833,11 +768,13 @@ public:
   void CopyFromNoAsk(const UStringVector &filePaths);
   void CopyFromAsk(const UStringVector &filePaths);
 
+#ifdef _WIN32
   // empty folderPath means create new Archive to path of first fileName.
   void DropObject(IDataObject * dataObject, const UString &folderPath);
 
   // empty folderPath means create new Archive to path of first fileName.
   void CompressDropFiles(const UStringVector &fileNames, const UString &folderPath);
+#endif
 
   void RefreshTitle(bool always = false) { _panelCallback->RefreshTitle(always);  }
   void RefreshTitleAlways() { RefreshTitle(true);  }
@@ -860,29 +797,5 @@ public:
   }
   ~CMyBuffer() { ::MidFree(_data); }
 };
-
-class CExitEventLauncher
-{
-public:
-  NWindows::NSynchronization::CManualResetEvent _exitEvent;
-  bool _needExit;
-  CRecordVector< ::CThread > _threads;
-  unsigned _numActiveThreads;
-    
-  CExitEventLauncher()
-  {
-    _needExit = false;
-    if (_exitEvent.Create(false) != S_OK)
-      throw 9387173;
-    _needExit = true;
-    _numActiveThreads = 0;
-  };
-
-  ~CExitEventLauncher() { Exit(true); }
-
-  void Exit(bool hardExit);
-};
-
-extern CExitEventLauncher g_ExitEventLauncher;
 
 #endif

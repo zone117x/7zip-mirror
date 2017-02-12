@@ -21,6 +21,10 @@
 #include "7zOut.h"
 #include "7zUpdate.h"
 
+#ifndef WIN32
+#include "Windows/FileIO.h"
+#endif
+
 namespace NArchive {
 namespace N7z {
 
@@ -38,7 +42,7 @@ struct CFilterMode
   {
     if (Id == k_IA64)
       Delta = 16;
-    else if (Id == k_ARM || Id == k_PPC || Id == k_SPARC)
+    else if (Id == k_ARM || Id == k_PPC || Id == k_PPC)
       Delta = 4;
     else if (Id == k_ARMT)
       Delta = 2;
@@ -779,7 +783,7 @@ struct CSolidGroup
   CRecordVector<CFolderRepack> folderRefs;
 };
 
-static const char * const g_ExeExts[] =
+static const char *g_ExeExts[] =
 {
     "dll"
   , "exe"
@@ -795,6 +799,41 @@ static bool IsExeExt(const wchar_t *ext)
       return true;
   return false;
 }
+
+#ifndef _WIN32
+static bool IsExeFile(const CUpdateItem &ui)
+{
+  int dotPos = ui.Name.ReverseFind(L'.');
+  if (dotPos >= 0)
+     if (IsExeExt(ui.Name.Ptr(dotPos + 1)) ) return true;
+
+  if (ui.Attrib & FILE_ATTRIBUTE_UNIX_EXTENSION) {
+    unsigned short st_mode =  ui.Attrib >> 16;
+    if ((st_mode & 00111) && (ui.Size >= 2048))
+    {
+      // file has the execution flag and it's big enought
+      // try to find if the file is a script
+      NWindows::NFile::NIO::CInFile file;
+      if (file.Open(ui.Name))
+      {
+        char buffer[2048];
+        UINT32 processedSize;
+        if (file.Read(buffer,sizeof(buffer),processedSize))
+        {
+          for(UInt32 i = 0; i < processedSize ; i++)
+          {
+            if (buffer[i] == 0) 
+	    {
+              return true; // this file is not a text (ascii, utf8, ...) !
+	    }
+          }
+       }
+     }
+   }
+  } 
+  return false;
+}
+#endif
 
 struct CAnalysis
 {
@@ -854,7 +893,11 @@ HRESULT CAnalysis::GetFilterGroup(UInt32 index, const CUpdateItem &ui, CFilterMo
         }
       }
 
+#ifdef _WIN32
       if (IsExeExt(ext))
+#else
+      if (IsExeFile(ui))
+#endif
       {
         needReadFile = true;
         #ifdef _WIN32

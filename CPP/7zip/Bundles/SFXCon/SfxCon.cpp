@@ -12,6 +12,8 @@
 #ifdef _WIN32
 #include "../../../Windows/DLL.h"
 #include "../../../Windows/FileDir.h"
+#else
+#include "myPrivate.h"
 #endif
 #include "../../../Windows/FileName.h"
 
@@ -24,11 +26,9 @@
 
 #include "../../MyVersion.h"
 
-#include "../../../../C/DllSecur.h"
-
 using namespace NWindows;
 using namespace NFile;
-using namespace NDir;
+// FIXME using namespace NDir;
 using namespace NCommandLineParser;
 
 #ifdef _WIN32
@@ -105,7 +105,7 @@ static const wchar_t *kUniversalWildcard = L"*";
 static const int kCommandIndex = 0;
 
 static const char *kHelpString =
-    "\nUsage: 7zSFX [<command>] [<switches>...] [<file_name>...]\n"
+    "\nUsage: 7zSFX [<command>] [<switches>...]\n"
     "\n"
     "<Commands>\n"
     // "  l: List contents of archive\n"
@@ -224,8 +224,15 @@ void AddCommandLineWildcardToCensor(NWildcard::CCensor &wildcardCensor,
     ShowMessageAndThrowException(kIncorrectWildcardInCommandLine, NExitCode::kUserError);
 }
 
+void AddToCensorFromNonSwitchesStrings(NWildcard::CCensor &wildcardCensor,
+    const UStringVector & /* nonSwitchStrings */, NRecursedType::EEnum type,
+    bool /* thereAreSwitchIncludeWildcards */)
+{
+  AddCommandLineWildcardToCensor(wildcardCensor, kUniversalWildcard, true, type);
+}
 
-#ifndef _WIN32
+
+#if 0 // #ifndef _WIN32
 static void GetArguments(int numArgs, const char *args[], UStringVector &parts)
 {
   parts.Clear();
@@ -239,15 +246,10 @@ static void GetArguments(int numArgs, const char *args[], UStringVector &parts)
 
 int Main2(
   #ifndef _WIN32
-  int numArgs, const char *args[]
+  int numArgs, char *args[]
   #endif
 )
 {
-  #ifdef _WIN32
-  // do we need load Security DLLs for console program?
-  LoadSecurityDlls();
-  #endif
-
   #if defined(_WIN32) && !defined(UNDER_CE)
   SetFileApisToOEM();
   #endif
@@ -258,7 +260,8 @@ int Main2(
   #ifdef _WIN32
   NCommandLineParser::SplitCommandLine(GetCommandLineW(), commandStrings);
   #else
-  GetArguments(numArgs, args, commandStrings);
+  // GetArguments(numArgs, args, commandStrings);
+  mySplitCommandLine(numArgs,args,commandStrings);
   #endif
 
   #ifdef _WIN32
@@ -275,6 +278,8 @@ int Main2(
   }
 
   #else
+  // After mySplitCommandLine
+  showP7zipInfo(&g_StdOut);
 
   UString arcPath = commandStrings.Front();
 
@@ -283,16 +288,9 @@ int Main2(
   commandStrings.Delete(0);
 
   NCommandLineParser::CParser parser(kNumSwitches);
-  
   try
   {
-    if (!parser.ParseStrings(kSwitchForms, commandStrings))
-    {
-      g_StdOut << "Command line error:" << endl
-          << parser.ErrorMessage << endl
-          << parser.ErrorLine << endl;
-      return NExitCode::kUserError;
-    }
+    parser.ParseStrings(kSwitchForms, commandStrings);
   }
   catch(...)
   {
@@ -304,23 +302,19 @@ int Main2(
     PrintHelp();
     return 0;
   }
-  
   const UStringVector &nonSwitchStrings = parser.NonSwitchStrings;
 
-  unsigned curCommandIndex = 0;
+  int numNonSwitchStrings = nonSwitchStrings.Size();
 
   CArchiveCommand command;
-  if (nonSwitchStrings.IsEmpty())
+  if (numNonSwitchStrings == 0)
     command.CommandType = NCommandType::kFullExtract;
   else
   {
-    const UString &cmd = nonSwitchStrings[curCommandIndex];
-    if (!ParseArchiveCommand(cmd, command))
-    {
-      g_StdOut << "ERROR: Unknown command:" << endl << cmd << endl;
-      return NExitCode::kUserError;
-    }
-    curCommandIndex = 1;
+    if (numNonSwitchStrings > 1)
+      PrintHelpAndExit();
+    if (!ParseArchiveCommand(nonSwitchStrings[kCommandIndex], command))
+      PrintHelpAndExit();
   }
 
 
@@ -329,17 +323,11 @@ int Main2(
 
   NWildcard::CCensor wildcardCensor;
   
-  {
-    if (nonSwitchStrings.Size() == curCommandIndex)
-      AddCommandLineWildcardToCensor(wildcardCensor, kUniversalWildcard, true, recursedType);
-    for (; curCommandIndex < nonSwitchStrings.Size(); curCommandIndex++)
-    {
-      const UString &s = nonSwitchStrings[curCommandIndex];
-      if (s.IsEmpty())
-        throw "Empty file path";
-      AddCommandLineWildcardToCensor(wildcardCensor, s, true, recursedType);
-    }
-  }
+  bool thereAreSwitchIncludeWildcards;
+  thereAreSwitchIncludeWildcards = false;
+
+  AddToCensorFromNonSwitchesStrings(wildcardCensor, nonSwitchStrings, recursedType,
+      thereAreSwitchIncludeWildcards);
 
   bool yesToAll = parser[NKey::kYes].ThereIs;
 

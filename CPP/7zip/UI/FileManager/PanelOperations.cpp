@@ -56,8 +56,8 @@ public:
   
 HRESULT CThreadFolderOperations::ProcessVirt()
 {
-  NCOM::CComInitializer comInitializer;
-  switch (OpType)
+  // FIXME NCOM::CComInitializer comInitializer;
+  switch(OpType)
   {
     case FOLDER_TYPE_CREATE_FOLDER:
       Result = FolderOperations->CreateFolder(Name, UpdateCallback);
@@ -81,7 +81,7 @@ HRESULT CThreadFolderOperations::DoOperation(CPanel &panel, const UString &progr
   UpdateCallback = UpdateCallbackSpec;
   UpdateCallbackSpec->ProgressDialog = &ProgressDialog;
 
-  ProgressDialog.WaitMode = true;
+  // FIXME ProgressDialog.WaitMode = true;
   ProgressDialog.Sync.FinalMessage.ErrorMessage.Title = titleError;
   Result = S_OK;
 
@@ -174,6 +174,7 @@ void CPanel::DeleteItems(bool NON_CE_VAR(toRecycleBin))
         buffer.AddData(path, path.Len() + 1);
       }
       *buffer.GetCurPtrAndGrow(1) = 0;
+#ifdef _WIN32
       if (maxLen >= MAX_PATH)
       {
         if (toRecycleBin)
@@ -207,6 +208,10 @@ void CPanel::DeleteItems(bool NON_CE_VAR(toRecycleBin))
         /* res = */ shFileOperationW(&fo);
         #endif
       }
+#else
+      // FIXME - how to use the recycle bin undex Gnome or KDE ?
+      useInternalDelete = true;
+#endif
     }
     /*
     if (fo.fAnyOperationsAborted)
@@ -264,6 +269,7 @@ void CPanel::DeleteItems(bool NON_CE_VAR(toRecycleBin))
   RefreshListCtrl(state);
 }
 
+#ifdef _WIN32
 BOOL CPanel::OnBeginLabelEdit(LV_DISPINFOW * lpnmh)
 {
   int realIndex = GetRealIndex(lpnmh->item);
@@ -273,6 +279,7 @@ BOOL CPanel::OnBeginLabelEdit(LV_DISPINFOW * lpnmh)
     return TRUE;
   return FALSE;
 }
+#endif
 
 bool IsCorrectFsName(const UString &name)
 {
@@ -289,6 +296,7 @@ bool CPanel::CorrectFsPath(const UString &path2, UString &result)
   return ::CorrectFsPath(GetFsPath(), path2, result);
 }
 
+#ifdef _WIN32
 BOOL CPanel::OnEndLabelEdit(LV_DISPINFOW * lpnmh)
 {
   if (lpnmh->item.pszText == NULL)
@@ -348,15 +356,16 @@ BOOL CPanel::OnEndLabelEdit(LV_DISPINFOW * lpnmh)
 
   // We need clear all items to disable GetText before Reload:
   // number of items can change.
-  // DeleteListItems();
+  // _listView.DeleteAllItems();
   // But seems it can still call GetText (maybe for current item)
   // so we can't delete items.
 
   _dontShowMode = true;
 
-  PostMsg(kReLoadMessage);
+  PostMessage(kReLoadMessage);
   return TRUE;
 }
+#endif
 
 bool Dlg_CreateFolder(HWND wnd, UString &destName);
 
@@ -521,3 +530,18 @@ void CPanel::ChangeComment()
   }
   RefreshListCtrl(state);
 }
+
+// From CPP/7zip/UI/FileManager/BrowseDialog.cpp
+bool Dlg_CreateFolder(HWND wnd, UString &destName)
+{
+  destName.Empty();
+  CComboDialog dlg;
+  LangString(IDS_CREATE_FOLDER, dlg.Title);
+  LangString(IDS_CREATE_FOLDER_NAME, dlg.Static);
+  LangString(IDS_CREATE_FOLDER_DEFAULT_NAME, dlg.Value);
+  if (dlg.Create(wnd) != IDOK)
+    return false;
+  destName = dlg.Value;
+  return true;
+}
+

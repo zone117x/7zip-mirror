@@ -4,7 +4,11 @@
 #define __WINDOWS_FILE_FIND_H
 
 #include "../Common/MyString.h"
+#include "../Common/MyTypes.h"
 #include "Defs.h"
+
+#include <sys/types.h> /* for DIR */
+#include <dirent.h>
 
 namespace NWindows {
 namespace NFile {
@@ -68,64 +72,27 @@ struct CFileInfo: public CFileInfoBase
   #endif
 
   bool IsDots() const throw();
-  bool Find(CFSTR path);
+  bool Find(CFSTR wildcard, bool ignoreLink = false);
 };
 
-class CFindFileBase
+class CFindFile
 {
-protected:
-  HANDLE _handle;
+  friend class CEnumerator;
+  DIR *_dirp;
+  AString _pattern;
+  AString _directory;  
 public:
-  bool IsHandleAllocated() const { return _handle != INVALID_HANDLE_VALUE; }
-  CFindFileBase(): _handle(INVALID_HANDLE_VALUE) {}
-  ~CFindFileBase() { Close(); }
-  bool Close() throw();
-};
-
-class CFindFile: public CFindFileBase
-{
-public:
-  bool FindFirst(CFSTR wildcard, CFileInfo &fileInfo);
+  bool IsHandleAllocated() const { return  (_dirp != 0); }
+  CFindFile(): _dirp(0) {}
+  ~CFindFile() { Close(); }
+  bool FindFirst(CFSTR wildcard, CFileInfo &fileInfo, bool ignoreLink = false);
   bool FindNext(CFileInfo &fileInfo);
+  bool Close();
 };
-
-#if defined(_WIN32) && !defined(UNDER_CE)
-
-struct CStreamInfo
-{
-  UString Name;
-  UInt64 Size;
-
-  UString GetReducedName() const; // returns ":Name"
-  // UString GetReducedName2() const; // returns "Name"
-  bool IsMainStream() const throw();
-};
-
-class CFindStream: public CFindFileBase
-{
-public:
-  bool FindFirst(CFSTR filePath, CStreamInfo &streamInfo);
-  bool FindNext(CStreamInfo &streamInfo);
-};
-
-class CStreamEnumerator
-{
-  CFindStream _find;
-  FString _filePath;
-
-  bool NextAny(CFileInfo &fileInfo);
-public:
-  CStreamEnumerator(const FString &filePath): _filePath(filePath) {}
-  bool Next(CStreamInfo &streamInfo, bool &found);
-};
-
-#endif
 
 bool DoesFileExist(CFSTR name);
 bool DoesDirExist(CFSTR name);
 bool DoesFileOrDirExist(CFSTR name);
-
-DWORD GetFileAttrib(CFSTR path);
 
 class CEnumerator
 {
@@ -139,6 +106,7 @@ public:
   bool Next(CFileInfo &fileInfo, bool &found);
 };
 
+#ifdef _WIN32
 class CFindChangeNotification
 {
   HANDLE _handle;
@@ -151,6 +119,7 @@ public:
   HANDLE FindFirst(CFSTR pathName, bool watchSubtree, DWORD notifyFilter);
   bool FindNext() { return BOOLToBool(::FindNextChangeNotification(_handle)); }
 };
+#endif
 
 #ifndef UNDER_CE
 bool MyGetLogicalDriveStrings(CObjectVector<FString> &driveStrings);

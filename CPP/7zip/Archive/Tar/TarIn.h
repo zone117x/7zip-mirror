@@ -15,7 +15,6 @@ enum EErrorType
   k_ErrorType_OK,
   k_ErrorType_Corrupted,
   k_ErrorType_UnexpectedEnd,
-  k_ErrorType_Warning
 };
 
 HRESULT ReadItem(ISequentialInStream *stream, bool &filled, CItemEx &itemInfo, EErrorType &error);

@@ -6,6 +6,8 @@
 
 #ifdef _WIN32
 #include <Psapi.h>
+#else
+#include "myPrivate.h"
 #endif
 
 #include "../../../../C/CpuArch.h"
@@ -88,7 +90,7 @@ static const char *kCopyrightString = "\n7-Zip"
 " [32]"
 #endif
 
-" " MY_VERSION_COPYRIGHT_DATE "\n\n";
+" " MY_VERSION_COPYRIGHT_DATE "\n";
 
 static const char *kHelpString =
     "Usage: 7z"
@@ -199,6 +201,10 @@ static void ShowCopyrightAndHelp(CStdOutStream *so, bool needHelp)
     return;
   *so << kCopyrightString;
   // *so << "# CPUs: " << (UInt64)NWindows::NSystem::GetNumberOfProcessors() << endl;
+
+  showP7zipInfo(so);
+ 
+
   if (needHelp)
     *so << kHelpString;
 }
@@ -375,7 +381,7 @@ static void PrintTime(const char *s, UInt64 val, UInt64 total)
   *g_StdStream << '%';
 }
 
-#ifndef UNDER_CE
+#if 0 // #ifndef UNDER_CE
 
 #define SHIFT_SIZE_VALUE(x, num) (((x) + (1 << (num)) - 1) >> (num))
 
@@ -397,6 +403,7 @@ static inline UInt64 GetTime64(const FILETIME &t) { return ((UInt64)t.dwHighDate
 
 static void PrintStat()
 {
+#if 0
   FILETIME creationTimeFT, exitTimeFT, kernelTimeFT, userTimeFT;
   if (!
       #ifdef UNDER_CE
@@ -461,6 +468,7 @@ static void PrintStat()
   #endif
   
   *g_StdStream << endl;
+#endif // FIXME 
 }
 
 static void PrintHexId(CStdOutStream &so, UInt64 id)
@@ -485,7 +493,8 @@ int Main2(
   #ifdef _WIN32
   NCommandLineParser::SplitCommandLine(GetCommandLineW(), commandStrings);
   #else
-  GetArguments(numArgs, args, commandStrings);
+  // GetArguments(numArgs, args, commandStrings);
+  mySplitCommandLine(numArgs,args,commandStrings);  
   #endif
 
   if (commandStrings.Size() == 1)
@@ -542,10 +551,11 @@ int Main2(
   if (options.LogLevel == 0 || options.Number_for_Percents != options.Number_for_Out)
     percentsNameLevel = 2;
 
-  unsigned consoleWidth = 80;
+  unsigned consoleWidth = 80; // FIXME
 
   if (percentsStream)
   {
+/* FIXME
     #ifdef _WIN32
     
     #if !defined(UNDER_CE)
@@ -561,6 +571,7 @@ int Main2(
       consoleWidth = w.ws_col;
     
     #endif
+*/
   }
 
   CREATE_CODECS_OBJECT
@@ -1111,6 +1122,20 @@ int Main2(
         g_StdStream, se,
         true // options.EnableHeaders
         );
+#ifdef ENV_UNIX
+    if (uo.SfxMode)
+    {
+        void myAddExeFlag(const UString &name);
+        for(int i = 0; i < uo.Commands.Size(); i++)
+        {
+            CUpdateArchiveCommand &command = uo.Commands[i];
+            if (!uo.StdOutMode)
+            {
+                myAddExeFlag(command.ArchivePath.GetFinalPath());
+            }
+        }
+    }
+#endif
   }
   else if (options.Command.CommandType == NCommandType::kHash)
   {

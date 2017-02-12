@@ -28,7 +28,7 @@ static void AddName(UStringVector &strings, UString &s)
 bool ReadNamesFromListFile(CFSTR fileName, UStringVector &strings, UINT codePage)
 {
   NWindows::NFile::NIO::CInFile file;
-  if (!file.Open(fileName))
+  if (!file.Open(fileName,true))  /* follow the symbolic link */
     return false;
   UInt64 fileSize;
   if (!file.GetLength(fileSize))

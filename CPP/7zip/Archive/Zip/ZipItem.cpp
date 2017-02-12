@@ -176,11 +176,13 @@ UInt32 CItem::GetWinAttrib() const
       if (FromCentral)
         winAttrib = ExternalAttrib;
       break;
-    case NHostOS::kUnix:
-      // do we need to clear 16 low bits in this case?
-      if (FromCentral)
-        winAttrib = ExternalAttrib & 0xFFFF0000;
-      break;
+#ifdef FILE_ATTRIBUTE_UNIX_EXTENSION
+    case NFileHeader::NHostOS::kUnix:
+        winAttrib = (ExternalAttrib & 0xFFFF0000) | FILE_ATTRIBUTE_UNIX_EXTENSION; 
+        if (winAttrib & (MY_LIN_S_IFDIR << 16))
+		winAttrib |= FILE_ATTRIBUTE_DIRECTORY;
+        return winAttrib;
+#endif
   }
   if (IsDir()) // test it;
     winAttrib |= FILE_ATTRIBUTE_DIRECTORY;

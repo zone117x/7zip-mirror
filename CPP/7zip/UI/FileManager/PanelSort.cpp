@@ -83,9 +83,9 @@ static inline const wchar_t *GetExtensionPtr(const UString &name)
 void CPanel::SetSortRawStatus()
 {
   _isRawSortProp = false;
-  FOR_VECTOR (i, _columns)
+  FOR_VECTOR (i, _properties)
   {
-    const CPropColumn &prop = _columns[i];
+    const CItemProperty &prop = _properties[i];
     if (prop.ID == _sortID)
     {
       _isRawSortProp = prop.IsRawProp ? 1 : 0;
@@ -124,6 +124,7 @@ int CALLBACK CompareItems2(LPARAM lParam1, LPARAM lParam2, LPARAM lpData)
       return 1;
     if (propType1 != NPropDataType::kRaw) return 0;
     if (propType2 != NPropDataType::kRaw) return 0;
+#ifdef _WIN32
     if (propID == kpidNtReparse)
     {
       NFile::CReparseShortInfo r1; r1.Parse((const Byte *)data1, dataSize1);
@@ -132,6 +133,7 @@ int CALLBACK CompareItems2(LPARAM lParam1, LPARAM lParam2, LPARAM lpData)
           (const Byte *)data1 + r1.Offset, r1.Size,
           (const Byte *)data2 + r2.Offset, r2.Size);
     }
+#endif
   }
 
   if (panel->_folderCompare)
@@ -169,7 +171,7 @@ int CALLBACK CompareItems2(LPARAM lParam1, LPARAM lParam2, LPARAM lpData)
   return ::CompareFileTime(&file1.MTime, &file2.MTime);
   */
 
-  // PROPID propID = panel->_columns[panel->_sortIndex].ID;
+  // PROPID propID = panel->_properties[panel->_sortIndex].ID;
 
   NCOM::CPropVariant prop1, prop2;
   // Name must be first property
@@ -205,6 +207,15 @@ int CALLBACK CompareItems(LPARAM lParam1, LPARAM lParam2, LPARAM lpData)
   return panel->_ascending ? result: (-result);
 }
 
+int 
+#if defined(__WIN32__) && !defined(__WXMICROWIN__) // FIXME
+  wxCALLBACK
+#endif
+ CompareItems_WX(long item1, long item2, long sortData)
+{
+        return CompareItems(item1,item2,sortData);
+}
+
 
 /*
 void CPanel::SortItems(int index)
@@ -215,7 +226,7 @@ void CPanel::SortItems(int index)
   {
     _sortIndex = index;
     _ascending = true;
-    switch (_columns[_sortIndex].ID)
+    switch (_properties[_sortIndex].ID)
     {
       case kpidSize:
       case kpidPackedSize:
@@ -229,15 +240,13 @@ void CPanel::SortItems(int index)
   _listView.SortItems(CompareItems, (LPARAM)this);
   _listView.EnsureVisible(_listView.GetFocusedItem(), false);
 }
-
 void CPanel::SortItemsWithPropID(PROPID propID)
 {
-  int index = _columns.FindItem_for_PropID(propID);
+  int index = _properties.FindItemWithID(propID);
   if (index >= 0)
     SortItems(index);
 }
 */
-
 void CPanel::SortItemsWithPropID(PROPID propID)
 {
   if (propID == _sortID)
@@ -258,7 +267,11 @@ void CPanel::SortItemsWithPropID(PROPID propID)
     }
   }
   SetSortRawStatus();
-  _listView.SortItems(CompareItems, (LPARAM)this);
+  if (sizeof(long) != sizeof(LPARAM)) {
+    printf("INTERNAL ERROR : sizeof(long) != sizeof(LPARAM)\n");
+    exit(-1);
+  }
+  _listView.SortItems(CompareItems_WX, (LPARAM)this); // FIXED _listView.SortItems(CompareItems, (LPARAM)this);
   _listView.EnsureVisible(_listView.GetFocusedItem(), false);
 }
 
@@ -266,8 +279,8 @@ void CPanel::SortItemsWithPropID(PROPID propID)
 void CPanel::OnColumnClick(LPNMLISTVIEW info)
 {
   /*
-  int index = _columns.FindItem_for_PropID(_visibleColumns[info->iSubItem].ID);
+  int index = _properties.FindItemWithID(_visibleProperties[info->iSubItem].ID);
   SortItems(index);
   */
-  SortItemsWithPropID(_visibleColumns[info->iSubItem].ID);
+  SortItemsWithPropID(_visibleProperties[info->iSubItem].ID);
 }

@@ -72,13 +72,6 @@ STDMETHODIMP CHandler::GetArchiveProperty(PROPID propID, PROPVARIANT *value)
       break;
     }
 
-    case kpidWarningFlags:
-    {
-      if (_warning)
-        prop = kpv_ErrorFlags_HeadersError;
-      break;
-    }
-
     case kpidCodePage:
     {
       const char *name = NULL;
@@ -105,13 +98,7 @@ STDMETHODIMP CHandler::GetArchiveProperty(PROPID propID, PROPVARIANT *value)
 HRESULT CHandler::ReadItem2(ISequentialInStream *stream, bool &filled, CItemEx &item)
 {
   item.HeaderPos = _phySize;
-  EErrorType error;
-  HRESULT res = ReadItem(stream, filled, item, error);
-  if (error == k_ErrorType_Warning)
-    _warning = true;
-  else if (error != k_ErrorType_OK)
-    _error = error;
-  RINOK(res);
+  RINOK(ReadItem(stream, filled, item, _error));
   if (filled)
   {
     /*
@@ -246,7 +233,6 @@ STDMETHODIMP CHandler::OpenSeq(ISequentialInStream *stream)
 STDMETHODIMP CHandler::Close()
 {
   _isArc = false;
-  _warning = false;
   _error = k_ErrorType_OK;
 
   _phySizeDefined = false;

@@ -51,7 +51,7 @@ HRESULT Update(
     CObjectVector<CUpdateItem> &updateItems,
     ISequentialOutStream *seqOutStream,
     CInArchive *inArchive, bool removeSfx,
-    const CCompressionMethodMode &compressionMethodMode,
+    CCompressionMethodMode *compressionMethodMode,
     IArchiveUpdateCallback *updateCallback);
 
 }}

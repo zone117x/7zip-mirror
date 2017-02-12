@@ -31,7 +31,7 @@ static inline HRESULT ConvertBoolToHRESULT(bool result)
 
 
 static const UInt32 kClusterSize = 1 << 18;
-CInFileStream::CInFileStream():
+CInFileStream::CInFileStream(bool b):
   #ifdef SUPPORT_DEVICE_FILE
   VirtPos(0),
   PhyPos(0),
@@ -42,6 +42,7 @@ CInFileStream::CInFileStream():
   Callback(NULL),
   CallbackRef(0)
 {
+  _ignoreSymbolicLink = b;
 }
 
 CInFileStream::~CInFileStream()
@@ -292,7 +293,7 @@ STDMETHODIMP CInFileStream::GetSize(UInt64 *size)
   return ConvertBoolToHRESULT(File.GetLength(*size));
 }
 
-#ifdef USE_WIN_FILE
+#if 0 // #ifdef USE_WIN_FILE
 
 STDMETHODIMP CInFileStream::GetProps(UInt64 *size, FILETIME *cTime, FILETIME *aTime, FILETIME *mTime, UInt32 *attrib)
 {

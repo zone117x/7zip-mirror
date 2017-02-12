@@ -2,162 +2,38 @@
  
 #include "StdAfx.h"
 
-#include <stdlib.h>
+#include "../../C/Alloc.h"
 
-#include "NewHandler.h"
 
-// #define DEBUG_MEMORY_LEAK
+#ifdef DONT_REDEFINE_NEW
 
-#ifndef DEBUG_MEMORY_LEAK
-
-#ifdef _WIN32
-
-/*
-void * my_new(size_t size)
-{
-  // void *p = ::HeapAlloc(::GetProcessHeap(), 0, size);
-  void *p = ::malloc(size);
-  if (p == 0)
-    throw CNewException();
-  return p;
-}
-
-void my_delete(void *p) throw()
-{
-  // if (p == 0) return; ::HeapFree(::GetProcessHeap(), 0, p);
-  ::free(p);
-}
-
-void * my_Realloc(void *p, size_t newSize, size_t oldSize)
-{
-  void *newBuf = my_new(newSize);
-  if (oldSize != 0)
-    memcpy(newBuf, p, oldSize);
-  my_delete(p);
-  return newBuf;
-}
-*/
-
-void *
-#ifdef _MSC_VER
-__cdecl
-#endif
-operator new(size_t size)
-{
-  // void *p = ::HeapAlloc(::GetProcessHeap(), 0, size);
-  void *p = ::malloc(size);
-  if (p == 0)
-    throw CNewException();
-  return p;
-}
-
-void
-#ifdef _MSC_VER
-__cdecl
-#endif
-operator delete(void *p) throw()
-{
-  // if (p == 0) return; ::HeapFree(::GetProcessHeap(), 0, p);
-  ::free(p);
-}
-
-/*
-void *
-#ifdef _MSC_VER
-__cdecl
-#endif
-operator new[](size_t size)
-{
-  // void *p = ::HeapAlloc(::GetProcessHeap(), 0, size);
-  void *p = ::malloc(size);
-  if (p == 0)
-    throw CNewException();
-  return p;
-}
-
-void
-#ifdef _MSC_VER
-__cdecl
-#endif
-operator delete[](void *p) throw()
-{
-  // if (p == 0) return; ::HeapFree(::GetProcessHeap(), 0, p);
-  ::free(p);
-}
-*/
-
-#endif
+int g_NewHandler = 0;
 
 #else
 
-#include <stdio.h>
-
-// #pragma init_seg(lib)
-const int kDebugSize = 1000000;
-static void *a[kDebugSize];
-static int index = 0;
-
-static int numAllocs = 0;
-void * __cdecl operator new(size_t size)
+/* An overload function for the C++ new */
+void * operator new(size_t size)
 {
-  numAllocs++;
-  void *p = HeapAlloc(GetProcessHeap(), 0, size);
-  if (index < kDebugSize)
-  {
-    a[index] = p;
-    index++;
-  }
-  if (p == 0)
-    throw CNewException();
-  printf("Alloc %6d, size = %8u\n", numAllocs, (unsigned)size);
-  return p;
+  return MyAlloc(size);
 }
 
-class CC
+/* An overload function for the C++ new[] */
+void * operator new[](size_t size)
 {
-public:
-  CC()
-  {
-    for (int i = 0; i < kDebugSize; i++)
-      a[i] = 0;
-  }
-  ~CC()
-  {
-    for (int i = 0; i < kDebugSize; i++)
-      if (a[i] != 0)
-        return;
-  }
-} g_CC;
+    return MyAlloc(size);
+}
 
-
-void __cdecl operator delete(void *p)
+/* An overload function for the C++ delete */
+void operator delete(void *pnt)
 {
-  if (p == 0)
-    return;
-  /*
-  for (int i = 0; i < index; i++)
-    if (a[i] == p)
-      a[i] = 0;
-  */
-  HeapFree(GetProcessHeap(), 0, p);
-  numAllocs--;
-  printf("Free %d\n", numAllocs);
+    MyFree(pnt);
+}
+
+/* An overload function for the C++ delete[] */
+void operator delete[](void *pnt)
+{
+    MyFree(pnt);
 }
 
 #endif
 
-/*
-int MemErrorVC(size_t)
-{
-  throw CNewException();
-  // return 1;
-}
-CNewHandlerSetter::CNewHandlerSetter()
-{
-  // MemErrorOldVCFunction = _set_new_handler(MemErrorVC);
-}
-CNewHandlerSetter::~CNewHandlerSetter()
-{
-  // _set_new_handler(MemErrorOldVCFunction);
-}
-*/

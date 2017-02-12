@@ -40,9 +40,10 @@ STDMETHODIMP CBinderOutStream::Write(const void *data, UInt32 size, UInt32 *proc
 
 WRes CStreamBinder::CreateEvents()
 {
-  RINOK(_canWrite_Event.Create());
+  _synchroFor_canWrite_Event_and_readingWasClosed_Event.Create();
+  RINOK(_canWrite_Event.Create(&_synchroFor_canWrite_Event_and_readingWasClosed_Event));
   RINOK(_canRead_Event.Create());
-  return _readingWasClosed_Event.Create();
+  return _readingWasClosed_Event.Create(&_synchroFor_canWrite_Event_and_readingWasClosed_Event);
 }
 
 void CStreamBinder::ReInit()

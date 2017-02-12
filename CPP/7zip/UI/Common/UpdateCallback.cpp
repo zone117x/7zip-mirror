@@ -14,6 +14,7 @@
 #include "../../../Windows/FileDir.h"
 #include "../../../Windows/FileName.h"
 #include "../../../Windows/PropVariant.h"
+#include "../../../Windows/Synchronization.h"
 
 #include "../../Common/StreamObjects.h"
 
@@ -249,7 +250,7 @@ STDMETHODIMP CArchiveUpdateCallback::GetRawProp(UInt32 index, PROPID propID, con
         // propID == kpidNtReparse
         if (!StoreSymLinks)
           return S_OK;
-        #ifndef UNDER_CE
+        #if 0 // #ifndef UNDER_CE
         const CByteBuffer *buf = &di.ReparseData2;
         if (buf->Size() == 0)
           buf = &di.ReparseData;
@@ -339,7 +340,7 @@ STDMETHODIMP CArchiveUpdateCallback::GetProperty(UInt32 index, PROPID propID, PR
       }
       if (up.DirIndex >= 0)
       {
-        #ifndef UNDER_CE
+        #if 0 // #ifndef UNDER_CE
         const CDirItem &di = DirItems->Items[up.DirIndex];
         // if (di.IsDir())
         {
@@ -508,6 +509,7 @@ STDMETHODIMP CArchiveUpdateCallback::GetStream2(UInt32 index, ISequentialInStrea
       return Callback->OpenFileError(path, ::GetLastError());
     }
 
+#ifdef _WIN32 // FIXME
     if (StoreHardLinks)
     {
       CStreamFileProps props;
@@ -532,6 +534,7 @@ STDMETHODIMP CArchiveUpdateCallback::GetStream2(UInt32 index, ISequentialInStrea
         }
       }
     }
+#endif
 
     if (ProcessedItemsStatuses)
     {
@@ -724,6 +727,7 @@ STDMETHODIMP CArchiveUpdateCallback::CryptoGetTextPassword(BSTR *password)
 
 HRESULT CArchiveUpdateCallback::InFileStream_On_Error(UINT_PTR val, DWORD error)
 {
+#ifdef _WIN32 // FIXME
   if (error == ERROR_LOCK_VIOLATION)
   {
     MT_LOCK
@@ -737,6 +741,7 @@ HRESULT CArchiveUpdateCallback::InFileStream_On_Error(UINT_PTR val, DWORD error)
       }
     }
   }
+#endif
   return HRESULT_FROM_WIN32(error);
 }
 

@@ -56,7 +56,7 @@ static int GetColumnAlign(PROPID propID, VARTYPE varType)
     case kpidMTime:
       return LVCFMT_LEFT;
   }
-  
+
   switch (varType)
   {
     case VT_UI1:
@@ -70,45 +70,29 @@ static int GetColumnAlign(PROPID propID, VARTYPE varType)
     case VT_UI8:
     case VT_BOOL:
       return LVCFMT_RIGHT;
-    
+
     case VT_EMPTY:
     case VT_I1:
     case VT_FILETIME:
     case VT_BSTR:
       return LVCFMT_LEFT;
-    
+
     default:
       return LVCFMT_CENTER;
   }
 }
 
-
-static int ItemProperty_Compare_NameFirst(void *const *a1, void *const *a2, void * /* param */)
-{
-  return (*(*((const CPropColumn **)a1))).Compare_NameFirst(*(*((const CPropColumn **)a2)));
-}
-
 HRESULT CPanel::InitColumns()
 {
-  SaveListViewInfo();
+printf("CPanel::InitColumns\n");
+  if (_needSaveInfo)
+    SaveListViewInfo();
 
-  // DeleteListItems();
+  _listView.DeleteAllItems();
   _selectedStatusVector.Clear();
+  // printf("CPanel::InitColumns : _selectedStatusVector.Clear()\n");
 
-  {
-    // ReadListViewInfo();
-    const UString oldType = _typeIDString;
-    _typeIDString = GetFolderTypeID();
-    // an empty _typeIDString is allowed.
-    
-    // we read registry only for new FolderTypeID
-    if (!_needSaveInfo || _typeIDString != oldType)
-      _listViewInfo.Read(_typeIDString);
-    
-    // folders with same FolderTypeID can have different columns
-    // so we still read columns for that case.
-    // if (_needSaveInfo && _typeIDString == oldType) return S_OK;
-  }
+  ReadListViewInfo();
 
   // PROPID sortID;
   /*
@@ -119,21 +103,22 @@ HRESULT CPanel::InitColumns()
 
   _ascending = _listViewInfo.Ascending;
 
-  _columns.Clear();
+  _properties.Clear();
 
+  _needSaveInfo = true;
   bool isFsFolder = IsFSFolder() || IsAltStreamsFolder();
 
   {
     UInt32 numProps;
     _folder->GetNumberOfProperties(&numProps);
-    
+
     for (UInt32 i = 0; i < numProps; i++)
     {
       CMyComBSTR name;
       PROPID propID;
       VARTYPE varType;
       HRESULT res = _folder->GetPropertyInfo(i, &name, &propID, &varType);
-      
+
       if (res != S_OK)
       {
         /* We can return ERROR, but in that case, other code will not be called,
@@ -142,7 +127,7 @@ HRESULT CPanel::InitColumns()
       }
       if (propID == kpidIsDir)
         continue;
-      CPropColumn prop;
+      CItemProperty prop;
       prop.Type = varType;
       prop.ID = propID;
       prop.Name = GetNameOfProperty(propID, name);
@@ -150,7 +135,7 @@ HRESULT CPanel::InitColumns()
       prop.IsVisible = GetColumnVisible(propID, isFsFolder);
       prop.Width = GetColumnWidth(propID, varType);
       prop.IsRawProp = false;
-      _columns.Add(prop);
+      _properties.Add(prop);
     }
   }
 
@@ -158,15 +143,13 @@ HRESULT CPanel::InitColumns()
   {
     UInt32 numProps;
     _folderRawProps->GetNumRawProps(&numProps);
-    
     for (UInt32 i = 0; i < numProps; i++)
     {
       CMyComBSTR name;
       PROPID propID;
-      HRESULT res = _folderRawProps->GetRawPropInfo(i, &name, &propID);
-      if (res != S_OK)
-        continue;
-      CPropColumn prop;
+      RINOK(_folderRawProps->GetRawPropInfo(i, &name, &propID));
+
+      CItemProperty prop;
       prop.Type = VT_EMPTY;
       prop.ID = propID;
       prop.Name = GetNameOfProperty(propID, name);
@@ -174,153 +157,94 @@ HRESULT CPanel::InitColumns()
       prop.IsVisible = GetColumnVisible(propID, isFsFolder);
       prop.Width = GetColumnWidth(propID, VT_BSTR);;
       prop.IsRawProp = true;
-      _columns.Add(prop);
+      _properties.Add(prop);
     }
   }
 
+  // InitColumns2(sortID);
+
+  for (;;)
+    if (!_listView.DeleteColumn(0))
+      break;
+
   unsigned order = 0;
   unsigned i;
-  
   for (i = 0; i < _listViewInfo.Columns.Size(); i++)
   {
     const CColumnInfo &columnInfo = _listViewInfo.Columns[i];
-    int index = _columns.FindItem_for_PropID(columnInfo.PropID);
+    int index = _properties.FindItemWithID(columnInfo.PropID);
     if (index >= 0)
     {
-      CPropColumn &item = _columns[index];
-      if (item.Order >= 0)
-        continue; // we ignore duplicated items
-      bool isVisible = columnInfo.IsVisible;
-      // we enable kpidName, if it was disabled by some incorrect code
-      if (columnInfo.PropID == kpidName)
-        isVisible = true;
-      item.IsVisible = isVisible;
+      CItemProperty &item = _properties[index];
+      item.IsVisible = columnInfo.IsVisible;
       item.Width = columnInfo.Width;
-      if (isVisible)
+      if (columnInfo.IsVisible)
         item.Order = order++;
       continue;
     }
   }
 
-  for (i = 0; i < _columns.Size(); i++)
+  for (i = 0; i < _properties.Size(); i++)
   {
-    CPropColumn &item = _columns[i];
-    if (item.IsVisible && item.Order < 0)
-      item.Order = order++;
-  }
-  
-  for (i = 0; i < _columns.Size(); i++)
-  {
-    CPropColumn &item = _columns[i];
+    CItemProperty &item = _properties[i];
     if (item.Order < 0)
       item.Order = order++;
   }
 
-  CPropColumns newColumns;
-  
-  for (i = 0; i < _columns.Size(); i++)
+  _visibleProperties.Clear();
+  for (i = 0; i < _properties.Size(); i++)
   {
-    const CPropColumn &prop = _columns[i];
+    const CItemProperty &prop = _properties[i];
     if (prop.IsVisible)
-      newColumns.Add(prop);
+      _visibleProperties.Add(prop);
   }
 
-
+  // _sortIndex = 0;
+  _sortID = kpidName;
   /*
-  _sortIndex = 0;
   if (_listViewInfo.SortIndex >= 0)
   {
-    int sortIndex = _columns.FindItem_for_PropID(sortID);
+    int sortIndex = _properties.FindItemWithID(sortID);
     if (sortIndex >= 0)
       _sortIndex = sortIndex;
   }
   */
+  _sortID = _listViewInfo.SortID;
 
-  if (_listViewInfo.IsLoaded)
-    _sortID = _listViewInfo.SortID;
-  else
+  _visibleProperties.Sort();
+  for (i = 0; i < _visibleProperties.Size(); i++)
   {
-    _sortID = 0;
-    if (IsFSFolder() || IsAltStreamsFolder() || IsArcFolder())
-      _sortID = kpidName;
+    InsertColumn(i);
   }
-
-  /* There are restrictions in ListView control:
-     1) main column (kpidName) must have (LV_COLUMNW::iSubItem = 0)
-        So we need special sorting for columns.
-     2) when we add new column, LV_COLUMNW::iOrder can not be larger than already inserted columns)
-        So we set column order after all columns are added.
-  */
-  newColumns.Sort(ItemProperty_Compare_NameFirst, NULL);
-  
-  if (newColumns.IsEqualTo(_visibleColumns))
-    return S_OK;
-
-  CIntArr columns(newColumns.Size());
-  for (i = 0; i < newColumns.Size(); i++)
-    columns[i] = -1;
-  
-  bool orderError = false;
-  
-  for (i = 0; i < newColumns.Size(); i++)
-  {
-    const CPropColumn &prop = newColumns[i];
-    if (prop.Order < (int)newColumns.Size() && columns[prop.Order] == -1)
-      columns[prop.Order] = i;
-    else
-      orderError = true;
-  }
-
-  for (;;)
-  {
-    unsigned numColumns = _visibleColumns.Size();
-    if (numColumns == 0)
-      break;
-    DeleteColumn(numColumns - 1);
-  }
-
-  for (i = 0; i < newColumns.Size(); i++)
-    AddColumn(newColumns[i]);
-
-  // columns[0], columns[1], .... should be displayed from left to right:
-  if (!orderError)
-    _listView.SetColumnOrderArray(_visibleColumns.Size(), columns);
-
-  _needSaveInfo = true;
-
   return S_OK;
 }
 
-
-void CPanel::DeleteColumn(unsigned index)
+void CPanel::InsertColumn(unsigned index)
 {
-  _visibleColumns.Delete(index);
-  _listView.DeleteColumn(index);
-}
-
-void CPanel::AddColumn(const CPropColumn &prop)
-{
-  const int index = _visibleColumns.Size();
-  
+  const CItemProperty &prop = _visibleProperties[index];
   LV_COLUMNW column;
   column.mask = LVCF_FMT | LVCF_WIDTH | LVCF_TEXT | LVCF_SUBITEM | LVCF_ORDER;
   column.cx = prop.Width;
   column.fmt = GetColumnAlign(prop.ID, prop.Type);
-  column.iOrder = index; // must be <= _listView.ItemCount
-  column.iSubItem = index; // must be <= _listView.ItemCount
+  // FIXME not available column.iOrder = prop.Order;
+  // iOrder must be <= _listView.ItemCount
+  column.iSubItem = index;
   column.pszText = const_cast<wchar_t *>((const wchar_t *)prop.Name);
-
-  _visibleColumns.Add(prop);
+  // printf("CPanel::InsertColumn(%d)=>'%ls'\n",index,column.pszText); fflush(stdout);
   _listView.InsertColumn(index, &column);
 }
-
 
 HRESULT CPanel::RefreshListCtrl()
 {
   return RefreshListCtrl(UString(), -1, true, UStringVector());
 }
 
-int CALLBACK CompareItems(LPARAM lParam1, LPARAM lParam2, LPARAM lpData);
+// int CALLBACK CompareItems(LPARAM lParam1, LPARAM lParam2, LPARAM lpData);
+int
+#if defined(__WIN32__) && !defined(__WXMICROWIN__) // FIXME
+  wxCALLBACK
+#endif
+ CompareItems_WX(long item1, long item2, long sortData);
 
 
 void CPanel::GetSelectedNames(UStringVector &selectedNames)
@@ -384,6 +308,7 @@ void CPanel::SaveSelectedState(CSelectedState &s)
 
 HRESULT CPanel::RefreshListCtrl(const CSelectedState &s)
 {
+printf("CPanel::RefreshListCtrl\n");
   bool selectFocused = s.SelectFocused;
   if (_mySelectMode)
     selectFocused = true;
@@ -407,25 +332,16 @@ void CPanel::SetFocusedSelectedItem(int index, bool select)
   {
     int realIndex = GetRealItemIndex(index);
     if (realIndex != kParentIndex)
+    {
+       // printf("CPanel::SetFocusedSelectedItem(%d,%d) : _selectedStatusVector[%d]=%d => true\n",index,select,realIndex,_selectedStatusVector[realIndex]);
       _selectedStatusVector[realIndex] = true;
+    }
   }
 }
-
-// #define PRINT_STAT
-
-#ifdef PRINT_STAT
-  void Print_OnNotify(const char *name);
-#else
-  #define Print_OnNotify(x)
-#endif
-
 
 HRESULT CPanel::RefreshListCtrl(const UString &focusedName, int focusedPos, bool selectFocused,
     const UStringVector &selectedNames)
 {
-  if (!_folder)
-    return S_OK;
-
   _dontShowMode = false;
   LoadFullPathAndShow();
   // OutputDebugStringA("=======\n");
@@ -439,23 +355,28 @@ HRESULT CPanel::RefreshListCtrl(const UString &focusedName, int focusedPos, bool
   _listView.SetRedraw(false);
   // m_RedrawEnabled = false;
 
+#ifdef _WIN32
   LVITEMW item;
   ZeroMemory(&item, sizeof(item));
-  
+#else
+  LVITEMW item = { 0 };
+#endif
+
   // DWORD tickCount0 = GetTickCount();
-  
-  // _enableItemChangeNotify = false;
-  DeleteListItems();
+  _enableItemChangeNotify = false;
+  _listView.DeleteAllItems();
   _enableItemChangeNotify = true;
+
 
   int listViewItemCount = 0;
 
+  // printf("&&&&&&&&&&&&&& _selectedStatusVector.Clear() &&&&&&&&&&&&&&\n");
   _selectedStatusVector.Clear();
   // _realIndices.Clear();
   _startGroupSelect = 0;
 
   _selectionIsDefined = false;
-  
+
   // m_Files.Clear();
 
   if (!_folder)
@@ -463,8 +384,8 @@ HRESULT CPanel::RefreshListCtrl(const UString &focusedName, int focusedPos, bool
     // throw 1;
     SetToRootFolder();
   }
-  
-  _headerToolBar.EnableButton(kParentFolderID, !IsRootFolder());
+
+  // FIXME _headerToolBar.EnableButton(kParentFolderID, !IsRootFolder());
 
   {
     CMyComPtr<IFolderSetFlatMode> folderSetFlatMode;
@@ -496,6 +417,7 @@ HRESULT CPanel::RefreshListCtrl(const UString &focusedName, int focusedPos, bool
   _listView.SetItemCount(numItems + (showDots ? 1 : 0));
 
   _selectedStatusVector.ClearAndReserve(numItems);
+  // printf("_selectedStatusVector.ClearAndReserve(%d)\n",numItems);
   int cursorIndex = -1;
 
   CMyComPtr<IFolderGetSystemIconIndex> folderGetSystemIconIndex;
@@ -524,12 +446,6 @@ HRESULT CPanel::RefreshListCtrl(const UString &focusedName, int focusedPos, bool
     }
   }
 
-  _thereAre_ListView_Items = true;
-
-  // OutputDebugStringA("\n\n");
-
-  Print_OnNotify("===== Before Load");
-
   if (showDots)
   {
     UString itemName = L"..";
@@ -540,28 +456,29 @@ HRESULT CPanel::RefreshListCtrl(const UString &focusedName, int focusedPos, bool
     int subItem = 0;
     item.iSubItem = subItem++;
     item.lParam = kParentIndex;
-    // item.pszText = const_cast<wchar_t *>((const wchar_t *)itemName);
-    item.pszText = LPSTR_TEXTCALLBACKW;
+    item.pszText = const_cast<wchar_t *>((const wchar_t *)itemName); // FIXME item.pszText = LPSTR_TEXTCALLBACKW;
     UInt32 attrib = FILE_ATTRIBUTE_DIRECTORY;
     item.iImage = _extToIconMap.GetIconIndex(attrib, itemName);
     if (item.iImage < 0)
       item.iImage = 0;
     if (_listView.InsertItem(&item) == -1)
       return E_FAIL;
+
     listViewItemCount++;
   }
-  
+
   // OutputDebugStringA("S1\n");
 
   UString correctedName;
   UString itemName;
   UString relPath;
-  
+
+  printf("ADD ITEMS - BEGIN\n");
   for (UInt32 i = 0; i < numItems; i++)
   {
     const wchar_t *name = NULL;
     unsigned nameLen = 0;
-    
+
     if (_folderGetItemName)
       _folderGetItemName->GetItemName(i, &name, &nameLen);
     if (!name)
@@ -570,9 +487,9 @@ HRESULT CPanel::RefreshListCtrl(const UString &focusedName, int focusedPos, bool
       name = itemName;
       nameLen = itemName.Len();
     }
-  
+
     bool selected = false;
-    
+
     if (!focusedName.IsEmpty() || !selectedNames.IsEmpty())
     {
       relPath.Empty();
@@ -604,8 +521,10 @@ HRESULT CPanel::RefreshListCtrl(const UString &focusedName, int focusedPos, bool
       if (selectedNames.FindInSorted(relPath) >= 0)
         selected = true;
     }
-    
+
     _selectedStatusVector.AddInReserved(selected);
+    // printf("_selectedStatusVector.AddInReserved(%d)\n",selected);
+
 
     item.mask = LVIF_TEXT | LVIF_PARAM | LVIF_IMAGE;
 
@@ -615,13 +534,13 @@ HRESULT CPanel::RefreshListCtrl(const UString &focusedName, int focusedPos, bool
         item.mask |= LVIF_STATE;
         item.state = LVIS_SELECTED;
       }
-  
+
     int subItem = 0;
     item.iItem = listViewItemCount;
-    
+
     item.iSubItem = subItem++;
     item.lParam = i;
-    
+
     /*
     int finish = nameLen - 4;
     int j;
@@ -657,11 +576,9 @@ HRESULT CPanel::RefreshListCtrl(const UString &focusedName, int focusedPos, bool
     else
     */
     {
-      // item.pszText = const_cast<wchar_t *>((const wchar_t *)name);
-      item.pszText = LPSTR_TEXTCALLBACKW;
+      item.pszText = const_cast<wchar_t *>((const wchar_t *)name); // FIXME item.pszText = LPSTR_TEXTCALLBACKW;
       /* LPSTR_TEXTCALLBACKW works, but in some cases there are problems,
-      since we block notify handler.
-      LPSTR_TEXTCALLBACKW can be 2-3 times faster for loading in this loop. */
+      since we block notify handler. */
     }
 
     UInt32 attrib = 0;
@@ -678,12 +595,13 @@ HRESULT CPanel::RefreshListCtrl(const UString &focusedName, int focusedPos, bool
     // }
 
     bool defined = false;
-  
+#ifdef _WIN32
     if (folderGetSystemIconIndex)
     {
       folderGetSystemIconIndex->GetSystemIconIndex(i, &item.iImage);
       defined = (item.iImage > 0);
     }
+#endif
     if (!defined)
     {
       if (_currentFolderPrefix.IsEmpty())
@@ -697,44 +615,43 @@ HRESULT CPanel::RefreshListCtrl(const UString &focusedName, int focusedPos, bool
         item.iImage = _extToIconMap.GetIconIndex(attrib, name);
       }
     }
-    
+
     if (item.iImage < 0)
       item.iImage = 0;
 
     if (_listView.InsertItem(&item) == -1)
       return E_FAIL;
+
+
+    // FIXME Added
+    item.pszText = (LPWSTR)malloc(4096); // FIXME
+    for(int col=1;col <  _listView.GetColumnCount(); col++)
+    {
+      item.iSubItem = col;
+      item.cchTextMax = 4096 / sizeof(item.pszText[0]);
+      this->SetItemText(item);
+      _listView.SetItem(&item);
+    }
+    free(item.pszText); item.pszText = 0;
+
     listViewItemCount++;
   }
-  
-  /*
-    xp-64: there is different order when Windows calls CPanel::OnNotify for _listView modes:
-    Details      : after whole code
-    List         : 2 times:
-                        1) - ListView.SotRedraw()
-                        2) - after whole code
-    Small Icons  :
-    Large icons  : 2 times:
-                        1) - ListView.Sort()
-                        2) - after whole code (calls with reverse order of items)
+  printf("ADD ITEMS - END\n");
 
-    So we need to allow Notify(), when windows requests names during the following code.
-  */
+  // OutputDebugStringA("End2\n");
 
-  Print_OnNotify("after Load");
-
-  disableNotify.SetMemMode_Enable();
-  disableNotify.Restore();
-
+#if _WIN32
+  // FIXME : with wxWidget, after sortitems, the item is unselected and unfocused
   if (_listView.GetItemCount() > 0 && cursorIndex >= 0)
     SetFocusedSelectedItem(cursorIndex, selectFocused);
-
-  Print_OnNotify("after SetFocusedSelectedItem");
-  
+#endif
+  // DWORD tickCount3 = GetTickCount();
   SetSortRawStatus();
-  _listView.SortItems(CompareItems, (LPARAM)this);
-  
-  Print_OnNotify("after  Sort");
+  _listView.SortItems(CompareItems_WX, (LPARAM)this);
 
+
+
+  // DWORD tickCount4 = GetTickCount();
   if (cursorIndex < 0 && _listView.GetItemCount() > 0)
   {
     if (focusedPos >= _listView.GetItemCount())
@@ -742,29 +659,23 @@ HRESULT CPanel::RefreshListCtrl(const UString &focusedName, int focusedPos, bool
     // we select item only in showDots mode.
     SetFocusedSelectedItem(focusedPos, showDots);
   }
-
   // m_RedrawEnabled = true;
-  
-  Print_OnNotify("after  SetFocusedSelectedItem2");
-
+  // DWORD tickCount5 = GetTickCount();
   _listView.EnsureVisible(_listView.GetFocusedItem(), false);
+  // DWORD tickCount6 = GetTickCount();
 
-  // disableNotify.SetMemMode_Enable();
-  // disableNotify.Restore();
-
-  Print_OnNotify("after  EnsureVisible");
-
+  disableNotify.SetMemMode_Enable();
+  disableNotify.Restore();
   _listView.SetRedraw(true);
-
-  Print_OnNotify("after  SetRedraw");
-
+  // DWORD tickCount7 = GetTickCount();
   _listView.InvalidateRect(NULL, true);
-  
-  Print_OnNotify("after InvalidateRect");
+  // DWORD tickCount8 = GetTickCount();
+  // OutputDebugStringA("End1\n");
   /*
   _listView.UpdateWindow();
   */
   Refresh_StatusBar();
+  // DWORD tickCount9 = GetTickCount();
   /*
   char s[256];
   sprintf(s,
@@ -927,13 +838,17 @@ void CPanel::OpenSelectedItems(bool tryInternal)
     MessageBoxErrorLang(IDS_TOO_MANY_ITEMS);
     return;
   }
-  
+
   int focusedItem = _listView.GetFocusedItem();
+
+  // printf("###### CPanel::OpenSelectedItems(tryInternal=%d)-1 focusedItem=%d indices.Size()=%d\n",(int)tryInternal,focusedItem,(int)indices.Size());
+
   if (focusedItem >= 0)
   {
     int realIndex = GetRealItemIndex(focusedItem);
     if (realIndex == kParentIndex && (tryInternal || indices.Size() == 0) && _listView.IsItemSelected(focusedItem))
       indices.Insert(0, realIndex);
+      // printf("###### CPanel::OpenSelectedItems(tryInternal=%d) realIndex=%d indices.Size()=%d\n",(int)tryInternal,realIndex,(int)indices.Size());
   }
 
   bool dirIsStarted = false;
@@ -1088,62 +1003,63 @@ UInt64 CPanel::GetItemSize(int itemIndex) const
   return 0;
 }
 
+void CPanel::ReadListViewInfo()
+{
+  _typeIDString = GetFolderTypeID();
+  if (!_typeIDString.IsEmpty())
+    _listViewInfo.Read(_typeIDString);
+}
 
 void CPanel::SaveListViewInfo()
 {
-  if (!_needSaveInfo)
-    return;
-
   unsigned i;
-  
-  for (i = 0; i < _visibleColumns.Size(); i++)
+
+  printf("CPanel::SaveListViewInfo - BEGIN\n");
+  for (i = 0; i < _visibleProperties.Size(); i++)
   {
-    CPropColumn &prop = _visibleColumns[i];
+    CItemProperty &prop = _visibleProperties[i];
     LVCOLUMN winColumnInfo;
     winColumnInfo.mask = LVCF_ORDER | LVCF_WIDTH;
     if (!_listView.GetColumn(i, &winColumnInfo))
       throw 1;
-    prop.Order = winColumnInfo.iOrder;
+    // FIXME printf("CPanel::SaveListViewInfo - i=%d  ID=%d Order=%d => %d\n",i,prop.ID,prop.Order,winColumnInfo.iOrder);
+    // FIXME prop.Order = winColumnInfo.iOrder;  winColumnInfo.iOrder not set with _listView.GetColumn
     prop.Width = winColumnInfo.cx;
   }
+  printf("CPanel::SaveListViewInfo - END\n");
 
   CListViewInfo viewInfo;
-  
-  // PROPID sortPropID = _columns[_sortIndex].ID;
+
+  // PROPID sortPropID = _properties[_sortIndex].ID;
   PROPID sortPropID = _sortID;
-  
-  // we save columns as "sorted by order" to registry
 
-  CPropColumns sortedProperties = _visibleColumns;
+  _visibleProperties.Sort();
 
-  sortedProperties.Sort();
-  
-  for (i = 0; i < sortedProperties.Size(); i++)
+  for (i = 0; i < _visibleProperties.Size(); i++)
   {
-    const CPropColumn &prop = sortedProperties[i];
+    const CItemProperty &prop = _visibleProperties[i];
     CColumnInfo columnInfo;
     columnInfo.IsVisible = prop.IsVisible;
     columnInfo.PropID = prop.ID;
     columnInfo.Width = prop.Width;
     viewInfo.Columns.Add(columnInfo);
   }
-  
-  for (i = 0; i < _columns.Size(); i++)
+
+  for (i = 0; i < _properties.Size(); i++)
   {
-    const CPropColumn &prop = _columns[i];
-    if (sortedProperties.FindItem_for_PropID(prop.ID) < 0)
+    const CItemProperty &prop = _properties[i];
+    if (!prop.IsVisible)
     {
       CColumnInfo columnInfo;
-      columnInfo.IsVisible = false;
+      columnInfo.IsVisible = prop.IsVisible;
       columnInfo.PropID = prop.ID;
       columnInfo.Width = prop.Width;
       viewInfo.Columns.Add(columnInfo);
     }
   }
-  
+
   viewInfo.SortID = sortPropID;
   viewInfo.Ascending = _ascending;
-  viewInfo.IsLoaded = true;
   if (!_listViewInfo.IsEqual(viewInfo))
   {
     viewInfo.Save(_typeIDString);
@@ -1151,7 +1067,7 @@ void CPanel::SaveListViewInfo()
   }
 }
 
-
+#ifdef _WIN32
 bool CPanel::OnRightClick(MY_NMLISTVIEW_NMITEMACTIVATE *itemActiveate, LRESULT &result)
 {
   if (itemActiveate->hdr.hwndFrom == HWND(_listView))
@@ -1171,9 +1087,9 @@ void CPanel::ShowColumnsContextMenu(int x, int y)
   menu.CreatePopup();
 
   const int kCommandStart = 100;
-  FOR_VECTOR (i, _columns)
+  FOR_VECTOR (i, _properties)
   {
-    const CPropColumn &prop = _columns[i];
+    const CItemProperty &prop = _properties[i];
     UINT flags =  MF_STRING;
     if (prop.IsVisible)
       flags |= MF_CHECKED;
@@ -1181,25 +1097,28 @@ void CPanel::ShowColumnsContextMenu(int x, int y)
       flags |= MF_GRAYED;
     menu.AppendItem(flags, kCommandStart + i, prop.Name);
   }
-  
+
   int menuResult = menu.Track(TPM_LEFTALIGN | TPM_RETURNCMD | TPM_NONOTIFY, x, y, _listView);
-  
-  if (menuResult >= kCommandStart && menuResult <= kCommandStart + (int)_columns.Size())
+
+  if (menuResult >= kCommandStart && menuResult <= kCommandStart + (int)_properties.Size())
   {
     int index = menuResult - kCommandStart;
-    CPropColumn &prop = _columns[index];
+    CItemProperty &prop = _properties[index];
     prop.IsVisible = !prop.IsVisible;
 
     if (prop.IsVisible)
     {
-      prop.Order = _visibleColumns.Size();
-      AddColumn(prop);
+      unsigned num = _visibleProperties.Size();
+      prop.Order = num;
+      _visibleProperties.Add(prop);
+      InsertColumn(num);
     }
     else
     {
-      int visibleIndex = _visibleColumns.FindItem_for_PropID(prop.ID);
+      int visibleIndex = _visibleProperties.FindItemWithID(prop.ID);
       if (visibleIndex >= 0)
       {
+        _visibleProperties.Delete(visibleIndex);
         /*
         if (_sortIndex == index)
         {
@@ -1212,11 +1131,13 @@ void CPanel::ShowColumnsContextMenu(int x, int y)
           _sortID = kpidName;
           _ascending = true;
         }
-        DeleteColumn(visibleIndex);
+
+        _listView.DeleteColumn(visibleIndex);
       }
     }
   }
 }
+#endif
 
 void CPanel::OnReload()
 {

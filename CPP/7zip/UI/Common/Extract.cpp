@@ -263,7 +263,7 @@ HRESULT Extract(
     if (!options.StdInMode)
     {
       const FString &arcPath = us2fs(arcPaths[i]);
-      if (!fi.Find(arcPath))
+      if (!fi.Find(arcPath,true))
         throw "there is no such archive";
       if (fi.IsDir())
         throw "can't decompress folder";
@@ -306,7 +306,7 @@ HRESULT Extract(
     }
     else
     {
-      if (!fi.Find(us2fs(arcPath)) || fi.IsDir())
+      if (!fi.Find(us2fs(arcPath),true) || fi.IsDir())
         throw "there is no such archive";
     }
 
@@ -359,10 +359,13 @@ HRESULT Extract(
     op.stream = NULL;
     op.filePath = arcPath;
 
-    HRESULT result = arcLink.Open_Strict(op, openCallback);
+    HRESULT result = arcLink.Open3(op, openCallback);
 
     if (result == E_ABORT)
       return result;
+
+    if (result == S_OK && arcLink.NonOpen_ErrorInfo.ErrorFormatIndex >= 0)
+      result = S_FALSE;
 
     // arcLink.Set_ErrorsText();
     RINOK(extractCallback->OpenResult(codecs, arcLink, arcPath, result));

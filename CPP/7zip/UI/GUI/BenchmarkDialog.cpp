@@ -98,6 +98,7 @@ bool CBenchmarkDialog::OnInit()
 
   Sync.Init();
 
+#ifdef _WIN32
   if (TotalMode)
   {
     _consoleEdit.Attach(GetItem(IDE_BENCH2_EDIT));
@@ -118,6 +119,7 @@ bool CBenchmarkDialog::OnInit()
     if (_font._font)
       _consoleEdit.SendMsg(WM_SETFONT, (WPARAM)_font._font, TRUE);
   }
+#endif
 
   {
     TCHAR s[40];
@@ -233,6 +235,7 @@ bool CBenchmarkDialog::OnInit()
   return CModalDialog::OnInit();
 }
 
+#ifdef _WIN32
 bool CBenchmarkDialog::OnSize(WPARAM /* wParam */, int xSize, int ySize)
 {
   if (!TotalMode)
@@ -270,6 +273,7 @@ bool CBenchmarkDialog::OnSize(WPARAM /* wParam */, int xSize, int ySize)
   }
   return false;
 }
+#endif
 
 UInt32 CBenchmarkDialog::GetNumberOfThreads()
 {
@@ -767,7 +771,7 @@ static void ParseNumberString(const UString &s, NCOM::CPropVariant &prop)
 
 HRESULT Benchmark(
     DECL_EXTERNAL_CODECS_LOC_VARS
-    const CObjectVector<CProperty> &props, HWND hwndParent)
+    const CObjectVector<CProperty> props, HWND hwndParent)
 {
   CThreadBenchmark benchmarker;
   #ifdef EXTERNAL_CODECS

@@ -46,24 +46,24 @@ void CPanelCallbackImp::OnTab()
   _app->RefreshTitle();
 }
 
-void CPanelCallbackImp::SetFocusToPath(unsigned index)
+void CPanelCallbackImp::SetFocusToPath(int index)
 {
   int newPanelIndex = index;
   if (g_App.NumPanels == 1)
     newPanelIndex = g_App.LastFocusedPanel;
   _app->RefreshTitle();
-  _app->Panels[newPanelIndex]._headerComboBox.SetFocus();
-  _app->Panels[newPanelIndex]._headerComboBox.ShowDropDown();
+  // FIXME _app->Panels[newPanelIndex]._headerComboBox.SetFocus();
+  // FIXME _app->Panels[newPanelIndex]._headerComboBox.ShowDropDown();
 }
 
 
 void CPanelCallbackImp::OnCopy(bool move, bool copyToSame) { _app->OnCopy(move, copyToSame, _index); }
 void CPanelCallbackImp::OnSetSameFolder() { _app->OnSetSameFolder(_index); }
 void CPanelCallbackImp::OnSetSubFolder()  { _app->OnSetSubFolder(_index); }
-void CPanelCallbackImp::PanelWasFocused() { _app->SetFocusedPanel(_index); _app->RefreshTitlePanel(_index); }
-void CPanelCallbackImp::DragBegin() { _app->DragBegin(_index); }
-void CPanelCallbackImp::DragEnd() { _app->DragEnd(); }
-void CPanelCallbackImp::RefreshTitle(bool always) { _app->RefreshTitlePanel(_index, always); }
+void CPanelCallbackImp::PanelWasFocused() { _app->SetFocusedPanel(_index); _app->RefreshTitle(_index); }
+void CPanelCallbackImp::DragBegin() { /* FIXME _app->DragBegin(_index) */ ; }
+void CPanelCallbackImp::DragEnd() { /* FIXME _app->DragEnd() */ ; }
+void CPanelCallbackImp::RefreshTitle(bool always) { _app->RefreshTitle(_index, always); }
 
 void CApp::ReloadLang()
 {
@@ -72,18 +72,19 @@ void CApp::ReloadLang()
 
 void CApp::SetListSettings()
 {
-  CFmSettings st;
-  st.Load();
+  bool showDots = ReadShowDots();
+  bool showRealFileIcons = ReadShowRealFileIcons();
 
-  ShowSystemMenu = st.ShowSystemMenu;
-
-  DWORD extendedStyle = LVS_EX_HEADERDRAGDROP;
-  if (st.FullRow)
+  DWORD extendedStyle = 0; /* FIXME LVS_EX_HEADERDRAGDROP;
+  if (ReadFullRow())
     extendedStyle |= LVS_EX_FULLROWSELECT;
-  if (st.ShowGrid)
+  if (ReadShowGrid())
     extendedStyle |= LVS_EX_GRIDLINES;
+*/
+  bool mySelectionMode = ReadAlternativeSelection();
   
-  if (st.SingleClick)
+#ifdef _WIN32
+  if (ReadSingleClick())
   {
     extendedStyle |= LVS_EX_ONECLICKACTIVATE | LVS_EX_TRACKSELECT;
     /*
@@ -91,23 +92,31 @@ void CApp::SetListSettings()
       extendedStyle |= LVS_EX_UNDERLINEHOT;
     */
   }
+#endif
 
-  for (unsigned i = 0; i < kNumPanelsMax; i++)
+  for (int i = 0; i < kNumPanelsMax; i++)
   {
     CPanel &panel = Panels[i];
-    panel._mySelectMode = st.AlternativeSelection;
-    panel._showDots = st.ShowDots;
-    panel._showRealFileIcons = st.ShowRealFileIcons;
+    panel._mySelectMode = mySelectionMode;
+    panel._showDots = showDots;
+    panel._showRealFileIcons = showRealFileIcons;
     panel._exStyle = extendedStyle;
 
+#ifdef _WIN32
     DWORD style = (DWORD)panel._listView.GetStyle();
-    if (st.AlternativeSelection)
+    if (mySelectionMode)
       style |= LVS_SINGLESEL;
     else
       style &= ~LVS_SINGLESEL;
     panel._listView.SetStyle(style);
+#endif
     panel.SetExtendedStyle();
   }
+}
+
+void CApp::SetShowSystemMenu()
+{
+  ShowSystemMenu = Read_ShowSystemMenu();
 }
 
 #ifndef ILC_COLOR32
@@ -115,14 +124,11 @@ void CApp::SetListSettings()
 #endif
 
 HRESULT CApp::CreateOnePanel(int panelIndex, const UString &mainPath, const UString &arcFormat,
-    bool needOpenArc,
-    bool &archiveIsOpened, bool &encrypted)
+  bool &archiveIsOpened, bool &encrypted)
 {
-  if (Panels[panelIndex].PanelCreated)
+  if (PanelsCreated[panelIndex])
     return S_OK;
-  
   m_PanelCallbackImp[panelIndex].Init(this, panelIndex);
-  
   UString path;
   if (mainPath.IsEmpty())
   {
@@ -131,16 +137,14 @@ HRESULT CApp::CreateOnePanel(int panelIndex, const UString &mainPath, const UStr
   }
   else
     path = mainPath;
-  
   int id = 1000 + 100 * panelIndex;
-
-  return Panels[panelIndex].Create(_window, _window,
-      id, path, arcFormat, &m_PanelCallbackImp[panelIndex], &AppState,
-      needOpenArc,
-      archiveIsOpened, encrypted);
+  RINOK(Panels[panelIndex].Create(_window, _window,
+      id, path, arcFormat, &m_PanelCallbackImp[panelIndex], &AppState, archiveIsOpened, encrypted));
+  PanelsCreated[panelIndex] = true;
+  return S_OK;
 }
 
-
+#ifdef _WIN32
 static void CreateToolbar(HWND parent,
     NControl::CImageList &imageList,
     NControl::CToolBar &toolBar,
@@ -170,7 +174,7 @@ static void CreateToolbar(HWND parent,
       ILC_MASK | ILC_COLOR32, 0, 0);
   toolBar.SetImageList(0, imageList);
 }
-
+#endif
 
 struct CButtonInfo
 {
@@ -182,7 +186,7 @@ struct CButtonInfo
   UString GetText() const { return LangString(StringResID); }
 };
 
-static const CButtonInfo g_StandardButtons[] =
+static CButtonInfo g_StandardButtons[] =
 {
   { IDM_COPY_TO,    IDB_COPY,   IDB_COPY2,   IDS_BUTTON_COPY },
   { IDM_MOVE_TO,    IDB_MOVE,   IDB_MOVE2,   IDS_BUTTON_MOVE },
@@ -190,16 +194,16 @@ static const CButtonInfo g_StandardButtons[] =
   { IDM_PROPERTIES, IDB_INFO,   IDB_INFO2,   IDS_BUTTON_INFO }
 };
 
-static const CButtonInfo g_ArchiveButtons[] =
+static CButtonInfo g_ArchiveButtons[] =
 {
   { kMenuCmdID_Toolbar_Add,     IDB_ADD,     IDB_ADD2,     IDS_ADD },
   { kMenuCmdID_Toolbar_Extract, IDB_EXTRACT, IDB_EXTRACT2, IDS_EXTRACT },
   { kMenuCmdID_Toolbar_Test,    IDB_TEST,    IDB_TEST2,    IDS_TEST }
 };
 
-static bool SetButtonText(int commandID, const CButtonInfo *buttons, unsigned numButtons, UString &s)
+static bool SetButtonText(int commandID, CButtonInfo *buttons, int numButtons, UString &s)
 {
-  for (unsigned i = 0; i < numButtons; i++)
+  for (int i = 0; i < numButtons; i++)
   {
     const CButtonInfo &b = buttons[i];
     if (b.CommandID == commandID)
@@ -218,10 +222,11 @@ static void SetButtonText(int commandID, UString &s)
   SetButtonText(commandID, g_ArchiveButtons, ARRAY_SIZE(g_ArchiveButtons), s);
 }
 
+#ifdef _WIN32
 static void AddButton(
     NControl::CImageList &imageList,
     NControl::CToolBar &toolBar,
-    const CButtonInfo &butInfo, bool showText, bool large)
+    CButtonInfo &butInfo, bool showText, bool large)
 {
   TBBUTTON but;
   but.iBitmap = 0;
@@ -261,7 +266,7 @@ void CApp::ReloadToolbars()
   if (ShowArchiveToolbar || ShowStandardToolbar)
   {
     CreateToolbar(_window, _buttonsImageList, _toolBar, LargeButtons);
-    unsigned i;
+    int i;
     if (ShowArchiveToolbar)
       for (i = 0; i < ARRAY_SIZE(g_ArchiveButtons); i++)
         AddButton(_buttonsImageList, _toolBar, g_ArchiveButtons[i], ShowButtonsLables, LargeButtons);
@@ -272,50 +277,48 @@ void CApp::ReloadToolbars()
     _toolBar.AutoSize();
   }
 }
+#endif
 
 void CApp::SaveToolbarChanges()
 {
+#ifdef _WIN32
   SaveToolbar();
   ReloadToolbars();
   MoveSubWindows();
+#endif
 }
-
 
 void MyLoadMenu();
 
-
-HRESULT CApp::Create(HWND hwnd, const UString &mainPath, const UString &arcFormat, int xSizes[2], bool needOpenArc, bool &archiveIsOpened, bool &encrypted)
+HRESULT CApp::Create(HWND hwnd, const UString &mainPath, const UString &arcFormat, int xSizes[2], bool &archiveIsOpened, bool &encrypted)
 {
   _window.Attach(hwnd);
-
+#ifdef _WIN32
   #ifdef UNDER_CE
   _commandBar.Create(g_hInstance, hwnd, 1);
   #endif
-
   MyLoadMenu();
-  
   #ifdef UNDER_CE
   _commandBar.AutoSize();
   #endif
 
   ReadToolbar();
   ReloadToolbars();
+#endif
 
-  unsigned i;
+  int i;
   for (i = 0; i < kNumPanelsMax; i++)
-    Panels[i].PanelCreated = false;
+    PanelsCreated[i] = false;
 
   AppState.Read();
-  
   SetListSettings();
-
+  SetShowSystemMenu();
   if (LastFocusedPanel >= kNumPanelsMax)
     LastFocusedPanel = 0;
   // ShowDeletedFiles = Read_ShowDeleted();
 
   CListMode listMode;
   listMode.Read();
-  
   for (i = 0; i < kNumPanelsMax; i++)
   {
     CPanel &panel = Panels[i];
@@ -323,44 +326,25 @@ HRESULT CApp::Create(HWND hwnd, const UString &mainPath, const UString &arcForma
     panel._xSize = xSizes[i];
     panel._flatModeForArc = ReadFlatView(i);
   }
-  
   for (i = 0; i < kNumPanelsMax; i++)
-  {
-    unsigned panelIndex = i;
-    if (needOpenArc && LastFocusedPanel == 1)
-      panelIndex = 1 - i;
-
-    bool isMainPanel = (panelIndex == LastFocusedPanel);
-
-    if (NumPanels > 1 || isMainPanel)
+    if (NumPanels > 1 || i == LastFocusedPanel)
     {
       if (NumPanels == 1)
-        Panels[panelIndex]._xSize = xSizes[0] + xSizes[1];
+        Panels[i]._xSize = xSizes[0] + xSizes[1];
       bool archiveIsOpened2 = false;
       bool encrypted2 = false;
-      UString path;
-      if (isMainPanel)
-        path = mainPath;
-      
-      RINOK(CreateOnePanel(panelIndex, path, arcFormat,
-          isMainPanel && needOpenArc,
-          archiveIsOpened2, encrypted2));
-      
-      if (isMainPanel)
+      bool mainPanel = (i == LastFocusedPanel);
+      RINOK(CreateOnePanel(i, mainPanel ? mainPath : L"", arcFormat, archiveIsOpened2, encrypted2));
+      if (mainPanel)
       {
         archiveIsOpened = archiveIsOpened2;
         encrypted = encrypted2;
-        if (needOpenArc && !archiveIsOpened2)
-          return S_OK;
       }
     }
-  }
-  
   SetFocusedPanel(LastFocusedPanel);
   Panels[LastFocusedPanel].SetFocusToList();
   return S_OK;
 }
-
 
 HRESULT CApp::SwitchOnOffOnePanel()
 {
@@ -368,19 +352,17 @@ HRESULT CApp::SwitchOnOffOnePanel()
   {
     NumPanels++;
     bool archiveIsOpened, encrypted;
-    RINOK(CreateOnePanel(1 - LastFocusedPanel, UString(), UString(),
-        false, // needOpenArc
-        archiveIsOpened, encrypted));
-    Panels[1 - LastFocusedPanel].Enable(true);
-    Panels[1 - LastFocusedPanel].Show(SW_SHOWNORMAL);
+    RINOK(CreateOnePanel(1 - LastFocusedPanel, UString(), UString(), archiveIsOpened, encrypted));
+    // FIXME Panels[1 - LastFocusedPanel].Enable(true);
+    // FIXME Panels[1 - LastFocusedPanel].Show(SW_SHOWNORMAL);
   }
   else
   {
     NumPanels--;
-    Panels[1 - LastFocusedPanel].Enable(false);
-    Panels[1 - LastFocusedPanel].Show(SW_HIDE);
+    // FIXME Panels[1 - LastFocusedPanel].Enable(false);
+    // FIXME Panels[1 - LastFocusedPanel].Show(SW_HIDE);
   }
-  MoveSubWindows();
+  // FIXME MoveSubWindows();
   return S_OK;
 }
 
@@ -388,8 +370,7 @@ void CApp::Save()
 {
   AppState.Save();
   CListMode listMode;
-  
-  for (unsigned i = 0; i < kNumPanelsMax; i++)
+  for (int i = 0; i < kNumPanelsMax; i++)
   {
     const CPanel &panel = Panels[i];
     UString path;
@@ -402,7 +383,6 @@ void CApp::Save()
     listMode.Panels[i] = panel.GetListViewMode();
     SaveFlatView(i, panel._flatModeForArc);
   }
-  
   listMode.Save();
   // Save_ShowDeleted(ShowDeletedFiles);
 }
@@ -410,7 +390,7 @@ void CApp::Save()
 void CApp::Release()
 {
   // It's for unloading COM dll's: don't change it.
-  for (unsigned i = 0; i < kNumPanelsMax; i++)
+  for (int i = 0; i < kNumPanelsMax; i++)
     Panels[i].Release();
 }
 
@@ -500,7 +480,6 @@ UString CPanel::GetItemsInfoString(const CRecordVector<UInt32> &indices)
   UString info;
   UInt64 numDirs, numFiles, filesSize, foldersSize;
   numDirs = numFiles = filesSize = foldersSize = 0;
-  
   unsigned i;
   for (i = 0; i < indices.Size(); i++)
   {
@@ -525,7 +504,17 @@ UString CPanel::GetItemsInfoString(const CRecordVector<UInt32> &indices)
     AddValuePair1(info, IDS_PROP_SIZE, filesSize + foldersSize);
   
   info.Add_LF();
+#ifdef _WIN32
   info += _currentFolderPrefix;
+#else
+  {
+    extern const TCHAR * nameWindowToUnix(const TCHAR * lpFileName);
+
+    UString tmp = nameWindowToUnix(_currentFolderPrefix);
+
+    info += tmp;
+  }
+#endif
   
   for (i = 0; i < indices.Size() && (int)i < (int)kCopyDialog_NumInfoLines - 6; i++)
   {
@@ -558,7 +547,7 @@ static bool IsFsPath(const FString &path)
 
 void CApp::OnCopy(bool move, bool copyToSame, int srcPanelIndex)
 {
-  unsigned destPanelIndex = (NumPanels <= 1) ? srcPanelIndex : (1 - srcPanelIndex);
+  int destPanelIndex = (NumPanels <= 1) ? srcPanelIndex : (1 - srcPanelIndex);
   CPanel &srcPanel = Panels[srcPanelIndex];
   CPanel &destPanel = Panels[destPanelIndex];
 
@@ -678,6 +667,7 @@ void CApp::OnCopy(bool move, bool copyToSame, int srcPanelIndex)
     }
     else
     {
+#ifdef _WIN32
       if (IsAltPathPrefix(us2fs(destPath)))
       {
         // we allow alt streams dest only to alt stream folder in second panel
@@ -695,6 +685,7 @@ void CApp::OnCopy(bool move, bool copyToSame, int srcPanelIndex)
         */
       }
       else
+#endif
       {
         if (indices.Size() == 1 &&
           !destPath.IsEmpty() && destPath.Back() != WCHAR_PATH_SEPARATOR)
@@ -882,7 +873,7 @@ int CApp::GetFocusedPanelIndex() const
   {
     if (hwnd == 0)
       return 0;
-    for (unsigned i = 0; i < kNumPanelsMax; i++)
+    for (int i = 0; i < kNumPanelsMax; i++)
     {
       if (PanelsCreated[i] &&
           ((HWND)Panels[i] == hwnd || Panels[i]._listView == hwnd))
@@ -896,6 +887,7 @@ int CApp::GetFocusedPanelIndex() const
 static UString g_ToolTipBuffer;
 static CSysString g_ToolTipBufferSys;
 
+#ifdef _WIN32
 void CApp::OnNotify(int /* ctrlID */, LPNMHDR pnmh)
 {
   {
@@ -922,10 +914,18 @@ void CApp::OnNotify(int /* ctrlID */, LPNMHDR pnmh)
     #endif
   }
 }
+#endif
 
 void CApp::RefreshTitle(bool always)
 {
   UString path = GetFocusedPanel()._currentFolderPrefix;
+#ifndef _WIN32
+  {
+    extern const TCHAR * nameWindowToUnix(const TCHAR * lpFileName);
+    UString tmp = nameWindowToUnix(path);
+    path = tmp;
+  }	
+#endif
   if (path.IsEmpty())
     path = L"7-Zip"; // LangString(IDS_APP_TITLE);
   if (!always && path == PrevTitle)
@@ -934,7 +934,7 @@ void CApp::RefreshTitle(bool always)
   NWindows::MySetWindowText(_window, path);
 }
 
-void CApp::RefreshTitlePanel(unsigned panelIndex, bool always)
+void CApp::RefreshTitle(int panelIndex, bool always)
 {
   if (panelIndex != GetFocusedPanelIndex())
     return;

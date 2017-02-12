@@ -595,6 +595,7 @@ HRESULT CFieldPrinter::PrintItemInfo(UInt32 index, const CListStat &st)
           needPrint = false;
           #endif
         }
+#ifdef _WIN32
         else if (f.PropID == kpidNtReparse)
         {
           UString s;
@@ -604,6 +605,7 @@ HRESULT CFieldPrinter::PrintItemInfo(UInt32 index, const CListStat &st)
             g_StdOut.PrintUString(s, TempAString);
           }
         }
+#endif
       
         if (needPrint)
         {
@@ -1014,8 +1016,10 @@ HRESULT ListArchives(CCodecs *codecs,
       if (!fi.Find(us2fs(arcPath)))
       {
         DWORD errorCode = GetLastError();
+/* FIXME
         if (errorCode == 0)
           errorCode = ERROR_FILE_NOT_FOUND;
+*/
         lastError = HRESULT_FROM_WIN32(lastError);;
         g_StdOut.Flush();
         *g_ErrStream << endl << kError << NError::MyFormatMessage(errorCode) <<
@@ -1068,7 +1072,7 @@ HRESULT ListArchives(CCodecs *codecs,
       g_StdOut << endl << kListing << arcPath << endl << endl;
     }
     
-    HRESULT result = arcLink.Open_Strict(options, &openCallback);
+    HRESULT result = arcLink.Open3(options, &openCallback);
 
     if (result != S_OK)
     {
@@ -1095,6 +1099,9 @@ HRESULT ListArchives(CCodecs *codecs,
     }
     
     {
+      if (arcLink.NonOpen_ErrorInfo.ErrorFormatIndex >= 0)
+        numErrors++;
+      
       FOR_VECTOR (r, arcLink.Arcs)
       {
         const CArcErrorInfo &arc = arcLink.Arcs[r].ErrorInfo;

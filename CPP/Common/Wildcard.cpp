@@ -455,7 +455,7 @@ int CCensor::FindPrefix(const UString &prefix) const
   return -1;
 }
 
-#ifdef _WIN32
+#if 1 // #ifdef _WIN32
 
 bool IsDriveColonName(const wchar_t *s)
 {
@@ -484,7 +484,7 @@ unsigned GetNumPrefixParts_if_DrivePath(UStringVector &pathParts)
 
 #endif
 
-static unsigned GetNumPrefixParts(const UStringVector &pathParts)
+static unsigned GetNumPrefixParts(const UStringVector pathParts)
 {
   if (pathParts.IsEmpty())
     return 0;

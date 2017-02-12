@@ -92,7 +92,7 @@
 #define IDM_BENCHMARK2           902
 
 #define IDM_HELP_CONTENTS        960
-#define IDM_ABOUT                961
+#define IDM_ABOUT                5014  /* FIXME 961   5014 = wxID_ABOUT */
 
 #define IDS_OPTIONS                     2100
 

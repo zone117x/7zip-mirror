@@ -30,6 +30,7 @@ static const UINT kSystemStartMenuID = kMenuCmdID_Plugin_Start + 100;
 
 void CPanel::InvokeSystemCommand(const char *command)
 {
+#ifdef _WIN32
   NCOM::CComInitializer comInitializer;
   if (!IsFsOrPureDrivesFolder())
     return;
@@ -47,6 +48,9 @@ void CPanel::InvokeSystemCommand(const char *command)
   ci.hwnd = GetParent();
   ci.lpVerb = command;
   contextMenu->InvokeCommand(&ci);
+#else
+  printf(" WARNING CPanel::InvokeSystemCommand(%s)\n",command);
+#endif
 }
 
 static const char *kSeparator = "----------------------------\n";
@@ -189,9 +193,9 @@ void CPanel::Properties()
               }
               else
               {
-                for (UInt32 k = 0; k < dataSize; k++)
+                for (UInt32 i = 0; i < dataSize; i++)
                 {
-                  Byte b = ((const Byte *)data)[k];
+                  Byte b = ((const Byte *)data)[i];
                   s += GetHex((Byte)((b >> 4) & 0xF));
                   s += GetHex((Byte)(b & 0xF));
                 }
@@ -245,6 +249,8 @@ void CPanel::Properties()
       }
     }
 
+    CMyComPtr<IGetFolderArcProps> getFolderArcProps;
+    _folder.QueryInterface(IID_IGetFolderArcProps, &getFolderArcProps);
     if (getFolderArcProps)
     {
       CMyComPtr<IFolderArcProps> getProps;
@@ -357,6 +363,7 @@ void CPanel::EditPaste()
   // InvokeSystemCommand("paste");
 }
 
+#ifdef _WIN32
 HRESULT CPanel::CreateShellContextMenu(
     const CRecordVector<UInt32> &operatedIndices,
     CMyComPtr<IContextMenu> &systemContextMenu)
@@ -582,6 +589,8 @@ void CPanel::CreateSevenZipMenu(HMENU menuSpec,
   }
 }
 
+#endif
+
 static bool IsReadOnlyFolder(IFolderFolder *folder)
 {
   if (!folder)
@@ -650,6 +659,7 @@ bool CPanel::CheckBeforeUpdate(UINT resourceID)
   return true;
 }
 
+#ifdef _WIN32
 void CPanel::CreateFileMenu(HMENU menuSpec,
     CMyComPtr<IContextMenu> &sevenZipContextMenu,
     CMyComPtr<IContextMenu> &systemContextMenu,
@@ -865,3 +875,5 @@ bool CPanel::OnContextMenu(HANDLE windowHandle, int xPos, int yPos)
     return true;
   return true;
 }
+#endif
+

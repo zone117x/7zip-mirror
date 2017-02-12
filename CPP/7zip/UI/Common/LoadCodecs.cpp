@@ -83,7 +83,11 @@ using namespace NFile;
 
 static CFSTR kMainDll =
   // #ifdef _WIN32
+#ifdef USE_LIB7Z_DLL
+    FTEXT("lib7z.dll");
+#else
     FTEXT("7z.dll");
+#endif
   // #else
   // FTEXT("7z.so");
   // #endif
@@ -469,7 +473,7 @@ HRESULT CCodecs::LoadFormats()
 #ifdef _7ZIP_LARGE_PAGES
 extern "C"
 {
-  extern SIZE_T g_LargePageSize;
+  extern size_t g_LargePageSize;
 }
 #endif
 
@@ -477,14 +481,14 @@ HRESULT CCodecs::LoadDll(const FString &dllPath, bool needCheckDll, bool *loaded
 {
   if (loadedOK)
     *loadedOK = false;
-
+#ifdef _WIN32
   if (needCheckDll)
   {
     NDLL::CLibrary lib;
     if (!lib.LoadEx(dllPath, LOAD_LIBRARY_AS_DATAFILE))
       return S_OK;
   }
-  
+#endif  
   Libs.AddNew();
   CCodecLib &lib = Libs.Back();
   lib.Path = dllPath;
@@ -579,7 +583,9 @@ void CCodecs::CloseLibs()
 HRESULT CCodecs::Load()
 {
   #ifdef NEW_FOLDER_INTERFACE
+  #ifdef _WIN32
   InternalIcons.LoadIcons(g_hInstance);
+  #endif
   #endif
 
   Formats.Clear();
@@ -745,6 +751,7 @@ bool CCodecs::FindFormatForArchiveType(const UString &arcType, CIntVector &forma
 
 void CCodecIcons::LoadIcons(HMODULE m)
 {
+#ifdef _WIN32
   UString iconTypes;
   MyLoadString(m, kIconTypesResId, iconTypes);
   UStringVector pairs;
@@ -771,10 +778,12 @@ void CCodecIcons::LoadIcons(HMODULE m)
     iconPair.Ext = s.Left(pos);
     IconPairs.Add(iconPair);
   }
+#endif
 }
 
 bool CCodecIcons::FindIconIndex(const UString &ext, int &iconIndex) const
 {
+#ifdef _WIN32
   iconIndex = -1;
   FOR_VECTOR (i, IconPairs)
   {
@@ -785,6 +794,7 @@ bool CCodecIcons::FindIconIndex(const UString &ext, int &iconIndex) const
       return true;
     }
   }
+#endif
   return false;
 }
 

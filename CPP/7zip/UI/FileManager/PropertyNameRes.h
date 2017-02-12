@@ -92,4 +92,3 @@
 #define IDS_PROP_STREAM_ID        1092
 #define IDS_PROP_READ_ONLY        1093
 #define IDS_PROP_OUT_NAME         1094
-#define IDS_PROP_COPY_LINK        1095

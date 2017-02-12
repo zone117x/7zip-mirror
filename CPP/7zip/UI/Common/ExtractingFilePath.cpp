@@ -39,7 +39,7 @@ static void ReplaceIncorrectChars(UString &s)
   #endif
 }
 
-#ifdef _WIN32
+#if 1 // FIXME #ifdef _WIN32
 
 /* WinXP-64 doesn't support ':', '\\' and '/' symbols in name of alt stream.
    But colon in postfix ":$DATA" is allowed.
@@ -190,7 +190,9 @@ void Correct_FsPath(bool absIsAllowed, UStringVector &parts, bool isDir)
   {
     UString &s = parts[i];
 
+    #if 1 // #ifdef _WIN32  // ticket #153 Relative paths extracted outside of extraction directory
     Correct_PathPart(s);
+    #endif
 
     if (s.IsEmpty())
     {

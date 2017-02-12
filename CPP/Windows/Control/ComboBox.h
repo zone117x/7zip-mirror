@@ -1,65 +1,84 @@
 // Windows/Control/ComboBox.h
 
-#ifndef __WINDOWS_CONTROL_COMBOBOX_H
-#define __WINDOWS_CONTROL_COMBOBOX_H
+#ifndef __WINDOWS_WX_CONTROL_COMBOBOX_H
+#define __WINDOWS_WX_CONTROL_COMBOBOX_H
 
-#include "../../Common/MyWindows.h"
+#include "Windows/Window.h"
+#include "Windows/Defs.h"
 
-#include <commctrl.h>
 
-#include "../Window.h"
+#include "Windows/Control/Window2.h" // NMHDR
+
+#ifndef _WIN32
+#define CB_ERR (-1)  // wxNOT_FOUND
+#endif
+
+typedef struct
+{
+	NMHDR hdr;
+#define CBENF_ESCAPE 1
+#define CBENF_RETURN 2
+	int iWhy;
+} NMCBEENDEDITW;
+
+typedef NMCBEENDEDITW * PNMCBEENDEDITW;
+
+
+class wxComboBox;
 
 namespace NWindows {
-namespace NControl {
+	namespace NControl {
 
-class CComboBox: public CWindow
-{
-public:
-  void ResetContent() { SendMsg(CB_RESETCONTENT, 0, 0); }
-  LRESULT AddString(LPCTSTR s) { return SendMsg(CB_ADDSTRING, 0, (LPARAM)s); }
-  #ifndef _UNICODE
-  LRESULT AddString(LPCWSTR s);
-  #endif
-  LRESULT SetCurSel(int index) { return SendMsg(CB_SETCURSEL, index, 0); }
-  int GetCurSel() { return (int)SendMsg(CB_GETCURSEL, 0, 0); }
-  int GetCount() { return (int)SendMsg(CB_GETCOUNT, 0, 0); }
-  
-  LRESULT GetLBTextLen(int index) { return SendMsg(CB_GETLBTEXTLEN, index, 0); }
-  LRESULT GetLBText(int index, LPTSTR s) { return SendMsg(CB_GETLBTEXT, index, (LPARAM)s); }
-  LRESULT GetLBText(int index, CSysString &s);
-  #ifndef _UNICODE
-  LRESULT GetLBText(int index, UString &s);
-  #endif
+		class CComboBox // : public CWindow
+		{
+			wxComboBox* _choice;
+		public:
+			CComboBox() : _choice(0) {}
 
-  LRESULT SetItemData(int index, LPARAM lParam) { return SendMsg(CB_SETITEMDATA, index, lParam); }
-  LRESULT GetItemData(int index) { return SendMsg(CB_GETITEMDATA, index, 0); }
+			void Attach(wxWindow * newWindow);
+			wxWindow * Detach();
+			operator HWND() const;
 
-  LRESULT GetItemData_of_CurSel() { return GetItemData(GetCurSel()); }
+			int AddString(const TCHAR * txt);
 
-  void ShowDropDown(bool show = true) { SendMsg(CB_SHOWDROPDOWN, show ? TRUE : FALSE, 0);  }
-};
+			void SetText(LPCTSTR s);
 
-#ifndef UNDER_CE
+			void GetText(CSysString &s);
 
-class CComboBoxEx: public CComboBox
-{
-public:
-  bool SetUnicodeFormat(bool fUnicode) { return LRESULTToBool(SendMsg(CBEM_SETUNICODEFORMAT, BOOLToBool(fUnicode), 0)); }
+			int GetCount() const ;
+			void GetLBText(int index, CSysString &s);
 
-  LRESULT DeleteItem(int index) { return SendMsg(CBEM_DELETEITEM, index, 0); }
-  LRESULT InsertItem(COMBOBOXEXITEM *item) { return SendMsg(CBEM_INSERTITEM, 0, (LPARAM)item); }
-  #ifndef _UNICODE
-  LRESULT InsertItem(COMBOBOXEXITEMW *item) { return SendMsg(CBEM_INSERTITEMW, 0, (LPARAM)item); }
-  #endif
+			void SetCurSel(int index);
+			int GetCurSel();
 
-  LRESULT SetItem(COMBOBOXEXITEM *item) { return SendMsg(CBEM_SETITEM, 0, (LPARAM)item); }
-  DWORD SetExtendedStyle(DWORD exMask, DWORD exStyle) { return (DWORD)SendMsg(CBEM_SETEXTENDEDSTYLE, exMask, exStyle); }
-  HWND GetEditControl() { return (HWND)SendMsg(CBEM_GETEDITCONTROL, 0, 0); }
-  HIMAGELIST SetImageList(HIMAGELIST imageList) { return (HIMAGELIST)SendMsg(CBEM_SETIMAGELIST, 0, (LPARAM)imageList); }
-};
+			void SetItemData(int index, int val);
 
-#endif
+			LRESULT GetItemData(int index);
 
-}}
+			LRESULT GetItemData_of_CurSel() { return GetItemData(GetCurSel()); }
 
-#endif
+			void Enable(bool state);
+
+			void ResetContent();
+		};
+
+		class CComboBoxEx : public CComboBox // : public CWindow
+		{
+		public:
+			/* FIXME
+  			LRESULT DeleteItem(int index)
+    			{ return SendMessage(CBEM_DELETEITEM, index, 0); }
+  			LRESULT InsertItem(COMBOBOXEXITEM *item)
+    			{ return SendMessage(CBEM_INSERTITEM, 0, (LPARAM)item); }
+  			DWORD SetExtendedStyle(DWORD exMask, DWORD exStyle)
+    			{ return (DWORD)SendMessage(CBEM_SETEXTENDEDSTYLE, exMask, exStyle); }
+  			HWND GetEditControl()
+    			{ return (HWND)SendMessage(CBEM_GETEDITCONTROL, 0, 0); }
+			*/
+		};
+
+
+	}
+}
+
+#endif // __WINDOWS_WX_CONTROL_COMBOBOX_H

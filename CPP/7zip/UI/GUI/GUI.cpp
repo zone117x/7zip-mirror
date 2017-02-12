@@ -2,10 +2,6 @@
 
 #include "StdAfx.h"
 
-#include "../../../Common/MyWindows.h"
-
-#include <shlwapi.h>
-
 #include "../../../../C/Alloc.h"
 
 #include "../../../Common/MyInitGuid.h"
@@ -40,7 +36,7 @@ HINSTANCE g_hInstance;
 #ifndef _UNICODE
 #endif
 
-#ifndef UNDER_CE
+#if 0 // #ifndef UNDER_CE
 
 DWORD g_ComCtl32Version;
 
@@ -101,11 +97,15 @@ static void ThrowException_if_Error(HRESULT res)
     throw CSystemException(res);
 }
 
-static int Main2()
+static int Main2(int argc,TCHAR **argv)
 {
   UStringVector commandStrings;
+#ifdef _WIN32
   NCommandLineParser::SplitCommandLine(GetCommandLineW(), commandStrings);
-
+#else
+  extern void mySplitCommandLineW(int numArguments,TCHAR  **arguments,UStringVector &parts);
+  mySplitCommandLineW(argc,argv,commandStrings);
+#endif
   #ifndef UNDER_CE
   if (commandStrings.Size() > 0)
     commandStrings.Delete(0);
@@ -352,6 +352,7 @@ static int Main2()
 
 #define NT_CHECK_FAIL_ACTION ErrorMessage(L"Unsupported Windows version"); return NExitCode::kFatalError;
 
+#ifdef _WIN32
 int APIENTRY WinMain(HINSTANCE  hInstance, HINSTANCE /* hPrevInstance */,
   #ifdef UNDER_CE
   LPWSTR
@@ -385,6 +386,30 @@ int APIENTRY WinMain(HINSTANCE  hInstance, HINSTANCE /* hPrevInstance */,
   {
     return Main2();
   }
+#else
+int Main1(int argc,TCHAR **argv)
+{
+  LoadLangOneTime();
+	
+  // under MacOSX, a bundle does not keep the current directory
+  // between 7zFM and 7zG ...
+  // So, try to use the environment variable P7ZIP_CURRENT_DIR
+  const char *p7zip_current_dir = getenv("P7ZIP_CURRENT_DIR");
+	
+  if (p7zip_current_dir)
+  {
+    UString currentDir = MultiByteToUnicodeString(p7zip_current_dir);
+		
+    NWindows::NFile::NDir::SetCurrentDir(currentDir);
+  }
+
+
+  // setlocale(LC_COLLATE, ".ACP");
+  try
+  {
+    return Main2(argc,argv);
+  }
+#endif
   catch(const CNewException &)
   {
     return ShowMemErrorMessage();

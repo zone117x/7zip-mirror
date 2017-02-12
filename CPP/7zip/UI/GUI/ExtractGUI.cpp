@@ -187,6 +187,13 @@ HRESULT ExtractGUI(
       NName::NormalizeDirPathPrefix(outputDirFull);
 
       dialog.DirPath = fs2us(outputDirFull);
+#ifndef _WIN32
+      {
+	extern const TCHAR * nameWindowToUnix(const TCHAR * lpFileName);
+        UString tmpDirectoryPath = dialog.DirPath;
+	dialog.DirPath = nameWindowToUnix(tmpDirectoryPath);
+      }
+#endif
 
       dialog.OverwriteMode = options.OverwriteMode;
       dialog.OverwriteMode_Force = options.OverwriteMode_Force;

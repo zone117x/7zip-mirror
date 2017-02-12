@@ -173,10 +173,16 @@ STDMETHODIMP CHandler::UpdateItems(ISequentialOutStream *outStream, UInt32 numIt
       bool tryUtf8 = true;
       if ((m_ForceLocal || !m_ForceUtf8) && codePage != CP_UTF8)
       {
+#ifdef _WIN32
         bool defaultCharWasUsed;
         ui.Name = UnicodeStringToMultiByte(name, codePage, '_', defaultCharWasUsed);
         tryUtf8 = (!m_ForceLocal && (defaultCharWasUsed ||
           MultiByteToUnicodeString(ui.Name, codePage) != name));
+#else
+	// FIXME
+        ui.Name = UnicodeStringToMultiByte(name, CP_OEMCP);
+        tryUtf8 = (!m_ForceLocal);
+#endif
       }
 
       if (tryUtf8)
@@ -276,7 +282,7 @@ STDMETHODIMP CHandler::UpdateItems(ISequentialOutStream *outStream, UInt32 numIt
       EXTERNAL_CODECS_VARS
       m_Items, updateItems, outStream,
       m_Archive.IsOpen() ? &m_Archive : NULL, _removeSfxBlock,
-      options, callback);
+      &options, callback);
  
   COM_TRY_END2
 }

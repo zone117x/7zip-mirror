@@ -20,6 +20,7 @@ static bool IsString1PrefixedByString2_NoCase(const wchar_t *u, const char *a)
 
 namespace NCommandLineParser {
 
+#ifdef _WIN32
 bool SplitCommandLine(const UString &src, UString &dest1, UString &dest2)
 {
   dest1.Empty();
@@ -57,7 +58,7 @@ void SplitCommandLine(const UString &s, UStringVector &parts)
     sTemp = s2;
   }
 }
-
+#endif
 
 static const char *kStopSwitchParsing = "--";
 

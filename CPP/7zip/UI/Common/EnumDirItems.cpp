@@ -17,6 +17,8 @@
 
 #include "EnumDirItems.h"
 
+#define UNDER_CE 1 // FIXME
+
 using namespace NWindows;
 using namespace NFile;
 using namespace NName;
@@ -591,7 +593,7 @@ static HRESULT EnumerateDirItems(
         }
         else
         #endif
-        if (!fi.Find(fullPath))
+        if (!fi.Find(fullPath,true))
         {
           RINOK(dirItems.AddError(fullPath));
           continue;
@@ -702,7 +704,7 @@ static HRESULT EnumerateDirItems(
         }
         else
         {
-          if (!fi.Find(fullPath))
+          if (!fi.Find(fullPath,true))
           {
             if (!nextNode.AreThereIncludeItems())
               continue;

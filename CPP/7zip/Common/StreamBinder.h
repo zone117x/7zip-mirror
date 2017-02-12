@@ -21,9 +21,10 @@ Can second call of _canWrite_Event.Set() be executed without memory barrier, if 
 
 class CStreamBinder
 {
-  NWindows::NSynchronization::CAutoResetEvent _canWrite_Event;
+  NWindows::NSynchronization::CSynchro _synchroFor_canWrite_Event_and_readingWasClosed_Event;
+  NWindows::NSynchronization::CAutoResetEventWFMO _canWrite_Event;
   NWindows::NSynchronization::CManualResetEvent _canRead_Event;
-  NWindows::NSynchronization::CManualResetEvent _readingWasClosed_Event;
+  NWindows::NSynchronization::CManualResetEventWFMO _readingWasClosed_Event;
 
   // bool _readingWasClosed;
   bool _readingWasClosed2;

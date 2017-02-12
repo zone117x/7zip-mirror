@@ -1511,7 +1511,7 @@ STDMETHODIMP CArchiveExtractCallback::SetOperationResult(Int32 opRes)
     NumFiles++;
 
   if (!_stdOutMode && _extractMode && _fi.AttribDefined)
-    SetFileAttrib(_diskFilePath, _fi.Attrib);
+    SetFileAttrib(_diskFilePath, _fi.Attrib, &_delayedSymLinks);
   
   RINOK(_extractCallback2->SetOperationResult(opRes, BoolToInt(_encrypted)));
   
@@ -1595,6 +1595,7 @@ static unsigned GetNumSlashes(const FChar *s)
 
 HRESULT CArchiveExtractCallback::SetDirsTimes()
 {
+  HRESULT result = S_OK;
   CRecordVector<CExtrRefSortPair> pairs;
   pairs.ClearAndSetSize(_extractedFolderPaths.Size());
   unsigned i;
@@ -1631,5 +1632,12 @@ HRESULT CArchiveExtractCallback::SetDirsTimes()
       (WriteATime && ATimeDefined) ? &ATime : NULL,
       (WriteMTime && MTimeDefined) ? &MTime : (_arc->MTimeDefined ? &_arc->MTime : NULL));
   }
-  return S_OK;
+  
+  for (int i = 0; i != _delayedSymLinks.Size(); ++i)
+    if (!_delayedSymLinks[i].Create())
+      result = E_FAIL;
+
+  _delayedSymLinks.Clear();
+
+  return result;
 }
