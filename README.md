@@ -1,6 +1,6 @@
 Mirror of 7zip source code (stable)
 
-# Copy of [Readme.txt](DOC/readme.txt):
+# Copy of [DOC/Readme.txt](DOC/readme.txt):
 
 
 
