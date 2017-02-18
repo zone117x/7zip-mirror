@@ -85,9 +85,6 @@
     <Filter Include="Windows">
       <UniqueIdentifier>{c3d7dda2-56f3-4361-a610-1dbf6143dfac}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Asm">
-      <UniqueIdentifier>{f36c41ee-5e5e-4d0b-a427-46594a15d8fb}</UniqueIdentifier>
-    </Filter>
   </ItemGroup>
   <ItemGroup>
     <Image Include="..\..\Archive\Icons\7z.ico">
@@ -917,6 +914,12 @@
     <ClCompile Include="..\..\..\Windows\TimeUtils.cpp">
       <Filter>Windows</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\..\..\C\7zCrcOpt.c">
+      <Filter>C</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\..\C\AesOpt.c">
+      <Filter>C</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="resource.rc">
@@ -1568,16 +1571,5 @@
     <CustomBuild Include="..\..\Archive\Archive2.def">
       <Filter>Spec</Filter>
     </CustomBuild>
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="..\..\..\..\Asm\x86\7zAsm.asm">
-      <Filter>Asm</Filter>
-    </None>
-    <None Include="..\..\..\..\Asm\x86\7zCrcOpt.asm">
-      <Filter>Asm</Filter>
-    </None>
-    <None Include="..\..\..\..\Asm\x86\AesOpt.asm">
-      <Filter>Asm</Filter>
-    </None>
   </ItemGroup>
 </Project>
