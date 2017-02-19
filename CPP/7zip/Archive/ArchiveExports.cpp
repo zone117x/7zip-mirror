@@ -11,9 +11,10 @@
 #include "../Common/RegisterArc.h"
 
 static const unsigned kNumArcsMax = 64;
-static unsigned g_NumArcs = 0;
+unsigned g_NumArcs = 0;
 static unsigned g_DefaultArcIndex = 0;
-static const CArcInfo *g_Arcs[kNumArcsMax];
+const CArcInfo *g_Arcs[kNumArcsMax];
+int foundCram = 0;
 
 void RegisterArc(const CArcInfo *arcInfo) throw()
 {

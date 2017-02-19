@@ -85,6 +85,9 @@
     <Filter Include="Windows">
       <UniqueIdentifier>{c3d7dda2-56f3-4361-a610-1dbf6143dfac}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Wrapper">
+      <UniqueIdentifier>{0fcc3ca4-b7b4-436b-a6bc-88f7cf59f393}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <Image Include="..\..\Archive\Icons\7z.ico">
@@ -920,6 +923,9 @@
     <ClCompile Include="..\..\..\..\C\AesOpt.c">
       <Filter>C</Filter>
     </ClCompile>
+    <ClCompile Include="Exports.cpp">
+      <Filter>Wrapper</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="resource.rc">
@@ -1565,6 +1571,12 @@
     </ClInclude>
     <ClInclude Include="..\..\..\Windows\TimeUtils.h">
       <Filter>Windows</Filter>
+    </ClInclude>
+    <ClInclude Include="Exports.h">
+      <Filter>Wrapper</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Archive\ArchiveExports.h">
+      <Filter>Spec</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
