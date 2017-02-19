@@ -67,6 +67,7 @@
       <PrecompiledHeaderFile>StdAfx.h</PrecompiledHeaderFile>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
       <ProgramDataBaseFileName>.\bin\Debug\x86\$(TargetName).pdb</ProgramDataBaseFileName>
+      <CallingConvention>StdCall</CallingConvention>
     </ClCompile>
     <Midl>
       <SuppressStartupBanner>true</SuppressStartupBanner>
