@@ -41,14 +41,18 @@ extern "C" {
         return arc->QueryInterface(pp);
     }*/
 
+
+    // Common function defs
+    typedef HRESULT(__stdcall *QueryInterfaceFunc)(const IID &riid, void **ppvObject);
+    typedef ULONG(__stdcall *AddRefFunc)();
+    typedef ULONG(__stdcall *ReleaseFunc)();
+
+    // IArchiveExtractCallback function defs
     typedef HRESULT (__stdcall *SetTotalFunc)(UInt64 total);
     typedef HRESULT(__stdcall *SetCompletedFunc)(const UInt64 *completeValue);
     typedef HRESULT(__stdcall *GetStreamFunc)(UInt32 index, ISequentialOutStream **outStream, Int32 askExtractMode);
     typedef HRESULT(__stdcall *PrepareOperationFunc)(Int32 askExtractMode);
     typedef HRESULT(__stdcall *SetOperationResultFunc)(Int32 opRes);
-    typedef HRESULT(__stdcall *QueryInterfaceFunc)(const IID &riid, void **ppvObject);
-    typedef ULONG(__stdcall *AddRefFunc)();
-    typedef ULONG(__stdcall *ReleaseFunc)();
 
     struct ArchiveExtractCallbackPassthrough : public IArchiveExtractCallback
     {
@@ -89,6 +93,77 @@ extern "C" {
         cb.GetStreamFunc = getStreamFunc;
         cb.PrepareOperationFunc = prepareOperationFunc;
         cb.SetOperationResultFunc = setOperationResultFunc;
+        cb.QueryInterfaceFunc = queryInterfaceFunc;
+        cb.AddRefFunc = addRefFunc;
+        cb.ReleaseFunc = releaseFunc;
+        return &cb;
+    }
+
+    // IInStream function defs
+    typedef HRESULT(__stdcall *SeekFunc)(Int64 offset, UInt32 seekOrigin, UInt64 *newPosition);
+    typedef HRESULT(__stdcall *ReadFunc)(void *data, UInt32 size, UInt32 *processedSize);
+
+    struct InStreamPassthrough : public IInStream
+    {
+        SeekFunc SeekFunc;
+        HRESULT __stdcall Seek(Int64 offset, UInt32 seekOrigin, UInt64 *newPosition) { return SeekFunc(offset, seekOrigin, newPosition); }
+
+        ReadFunc ReadFunc;
+        HRESULT __stdcall Read(void *data, UInt32 size, UInt32 *processedSize) { return ReadFunc(data, size, processedSize); }
+
+        QueryInterfaceFunc QueryInterfaceFunc;
+        HRESULT __stdcall QueryInterface(const IID &riid, void **ppvObject) { return QueryInterfaceFunc(riid, ppvObject); }
+
+        AddRefFunc AddRefFunc;
+        ULONG __stdcall AddRef() { return AddRefFunc(); }
+
+        ReleaseFunc ReleaseFunc;
+        ULONG __stdcall Release() { return ReleaseFunc(); }
+    };
+
+    __declspec(dllexport) IInStream* createInStream(
+        SeekFunc seekFunc, ReadFunc readFunc,
+        QueryInterfaceFunc queryInterfaceFunc, AddRefFunc addRefFunc, ReleaseFunc releaseFunc)
+    {
+        InStreamPassthrough st = {};
+        st.SeekFunc = seekFunc;
+        st.ReadFunc = readFunc;
+        st.QueryInterfaceFunc = queryInterfaceFunc;
+        st.AddRefFunc = addRefFunc;
+        st.ReleaseFunc = releaseFunc;
+        return &st;
+    }
+
+    // IArchiveOpenCallback function defs
+    typedef HRESULT(__stdcall *OpenSetTotalFunc)(const UInt64 *files, const UInt64 *bytes);
+    typedef HRESULT(__stdcall *OpenSetCompletedFunc)(const UInt64 *files, const UInt64 *bytes);
+
+    struct ArchiveOpenCallbackPassthrough : public IArchiveOpenCallback
+    {
+        OpenSetTotalFunc OpenSetTotalFunc;
+        HRESULT __stdcall SetTotal(const UInt64 *files, const UInt64 *bytes) { return OpenSetTotalFunc(files, bytes); }
+
+        OpenSetCompletedFunc OpenSetCompletedFunc;
+        HRESULT __stdcall SetCompleted(const UInt64 *files, const UInt64 *bytes) { return OpenSetCompletedFunc(files, bytes); }
+
+        QueryInterfaceFunc QueryInterfaceFunc;
+        HRESULT __stdcall QueryInterface(const IID &riid, void **ppvObject) { return QueryInterfaceFunc(riid, ppvObject); }
+
+        AddRefFunc AddRefFunc;
+        ULONG __stdcall AddRef() { return AddRefFunc(); }
+
+        ReleaseFunc ReleaseFunc;
+        ULONG __stdcall Release() { return ReleaseFunc(); }
+    };
+
+    __declspec(dllexport) IArchiveOpenCallback* createArchiveOpenCallback(
+        OpenSetTotalFunc openSetTotalFunc, OpenSetCompletedFunc openSetCompletedFunc,
+        QueryInterfaceFunc queryInterfaceFunc, AddRefFunc addRefFunc, ReleaseFunc releaseFunc
+    )
+    {
+        ArchiveOpenCallbackPassthrough cb = { };
+        cb.OpenSetTotalFunc = openSetTotalFunc;
+        cb.OpenSetCompletedFunc = openSetCompletedFunc;
         cb.QueryInterfaceFunc = queryInterfaceFunc;
         cb.AddRefFunc = addRefFunc;
         cb.ReleaseFunc = releaseFunc;
