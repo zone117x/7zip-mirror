@@ -40,7 +40,6 @@ CHandler::CHandler()
   _crcSize = 4;
   
   #ifdef __7Z_SET_PROPERTIES
-  _numThreads = NSystem::GetNumberOfProcessors();
   _useMultiThreadMixer = true;
   #endif
   
@@ -540,7 +539,7 @@ STDMETHODIMP CHandler::GetProperty(UInt32 index, PROPID propID, PROPVARIANT *val
   */
   
   const CFileItem &item = _db.Files[index];
-  UInt32 index2 = index;
+  const UInt32 index2 = index;
 
   switch (propID)
   {
@@ -575,7 +574,7 @@ STDMETHODIMP CHandler::GetProperty(UInt32 index, PROPID propID, PROPVARIANT *val
     case kpidCTime:  SetFileTimeProp_From_UInt64Def(value, _db.CTime, index2); break;
     case kpidATime:  SetFileTimeProp_From_UInt64Def(value, _db.ATime, index2); break;
     case kpidMTime:  SetFileTimeProp_From_UInt64Def(value, _db.MTime, index2); break;
-    case kpidAttrib:  if (item.AttribDefined) PropVarEm_Set_UInt32(value, item.Attrib); break;
+    case kpidAttrib:  if (_db.Attrib.ValidAndDefined(index2)) PropVarEm_Set_UInt32(value, _db.Attrib.Vals[index2]); break;
     case kpidCRC:  if (item.CrcDefined) PropVarEm_Set_UInt32(value, item.Crc); break;
     case kpidEncrypted:  PropVarEm_Set_Bool(value, IsFolderEncrypted(_db.FileIndexToFolderIndexMap[index2])); break;
     case kpidIsAnti:  PropVarEm_Set_Bool(value, _db.IsItemAnti(index2)); break;
@@ -714,8 +713,8 @@ STDMETHODIMP CHandler::Close()
 STDMETHODIMP CHandler::SetProperties(const wchar_t * const *names, const PROPVARIANT *values, UInt32 numProps)
 {
   COM_TRY_BEGIN
-  const UInt32 numProcessors = NSystem::GetNumberOfProcessors();
-  _numThreads = numProcessors;
+  
+  InitCommon();
   _useMultiThreadMixer = true;
 
   for (UInt32 i = 0; i < numProps; i++)
@@ -734,13 +733,15 @@ STDMETHODIMP CHandler::SetProperties(const wchar_t * const *names, const PROPVAR
         RINOK(PROPVARIANT_to_bool(value, _useMultiThreadMixer));
         continue;
       }
-      if (name.IsPrefixedBy_Ascii_NoCase("mt"))
       {
-        RINOK(ParseMtProp(name.Ptr(2), value, numProcessors, _numThreads));
-        continue;
+        HRESULT hres;
+        if (SetCommonProperty(name, value, hres))
+        {
+          RINOK(hres);
+          continue;
+        }
       }
-      else
-        return E_INVALIDARG;
+      return E_INVALIDARG;
     }
   }
   return S_OK;

@@ -15,11 +15,11 @@ O=O
 !ENDIF
 
 !IF "$(CPU)" == "AMD64"
-MY_ML = ml64 -Dx64
+MY_ML = ml64 -Dx64 -WX
 !ELSEIF "$(CPU)" == "ARM"
-MY_ML = armasm
+MY_ML = armasm -WX
 !ELSE
-MY_ML = ml
+MY_ML = ml -WX
 !ENDIF
 
 
@@ -32,7 +32,9 @@ LFLAGS = $(LFLAGS) /ENTRY:mainACRTStartup
 !IFNDEF NEW_COMPILER
 LFLAGS = $(LFLAGS) -OPT:NOWIN98
 !ENDIF
+!IF "$(CPU)" != "ARM" && "$(CPU)" != "ARM64"
 CFLAGS = $(CFLAGS) -Gr
+!ENDIF
 LIBS = $(LIBS) user32.lib advapi32.lib shell32.lib
 !ENDIF
 
@@ -53,15 +55,22 @@ CFLAGS = $(CFLAGS) -MD
 !ENDIF
 
 !IFDEF NEW_COMPILER
-CFLAGS = $(CFLAGS) -GS- -Zc:forScope
+CFLAGS = $(CFLAGS) -GS- -Zc:forScope -Zc:wchar_t
 !IFNDEF UNDER_CE
 CFLAGS = $(CFLAGS) -MP2
+!IFNDEF CPU
+# CFLAGS = $(CFLAGS) -arch:IA32
+!ENDIF
 !ENDIF
 !ELSE
 CFLAGS = $(CFLAGS)
 !ENDIF
 
+!IF "$(CPU)" == "AMD64"
 CFLAGS_O1 = $(CFLAGS) -O1
+!ELSE
+CFLAGS_O1 = $(CFLAGS) -O1
+!ENDIF
 CFLAGS_O2 = $(CFLAGS) -O2
 
 LFLAGS = $(LFLAGS) -nologo -OPT:REF -OPT:ICF
@@ -72,14 +81,30 @@ LFLAGS = $(LFLAGS) /LARGEADDRESSAWARE
 
 !IFDEF DEF_FILE
 LFLAGS = $(LFLAGS) -DLL -DEF:$(DEF_FILE)
+!ELSE
+!IF defined(MY_FIXED) && "$(CPU)" != "ARM" && "$(CPU)" != "ARM64"
+LFLAGS = $(LFLAGS) /FIXED
+!ELSE
+LFLAGS = $(LFLAGS) /FIXED:NO
+!ENDIF
+# /BASE:0x400000
 !ENDIF
 
-MY_SUB_SYS_VER=6.0
+
+# !IF "$(CPU)" == "AMD64"
+
+!IFDEF SUB_SYS_VER
+
+MY_SUB_SYS_VER=5.02
+
 !IFDEF MY_CONSOLE
-# LFLAGS = $(LFLAGS) /SUBSYSTEM:console,$(MY_SUB_SYS_VER)
+LFLAGS = $(LFLAGS) /SUBSYSTEM:console,$(MY_SUB_SYS_VER)
 !ELSE
-# LFLAGS = $(LFLAGS) /SUBSYSTEM:windows,$(MY_SUB_SYS_VER)
+LFLAGS = $(LFLAGS) /SUBSYSTEM:windows,$(MY_SUB_SYS_VER)
 !ENDIF
+
+!ENDIF
+
 
 PROGPATH = $O\$(PROG)
 
@@ -92,10 +117,11 @@ COMPLB    = $(CC) $(CFLAGS_O1) -Yu"StdAfx.h" -Fp$O/a.pch $<
 # COMPLB_O2 = $(CC) $(CFLAGS_O2) -Yu"StdAfx.h" -Fp$O/a.pch $<
 COMPLB_O2 = $(CC) $(CFLAGS_O2) $<
 
-CCOMPL_PCH  = $(CC) $(CFLAGS_O2) -Yc"Precomp.h" -Fp$O/a.pch $**
-CCOMPL_USE  = $(CC) $(CFLAGS_O2) -Yu"Precomp.h" -Fp$O/a.pch $**
-CCOMPL      = $(CC) $(CFLAGS_O2) $**
-CCOMPLB     = $(CC) $(CFLAGS_O2) $<
+CFLAGS_C_ALL = $(CFLAGS_O2) $(CFLAGS_C_SPEC)
+CCOMPL_PCH  = $(CC) $(CFLAGS_C_ALL) -Yc"Precomp.h" -Fp$O/a.pch $**
+CCOMPL_USE  = $(CC) $(CFLAGS_C_ALL) -Yu"Precomp.h" -Fp$O/a.pch $**
+CCOMPL      = $(CC) $(CFLAGS_C_ALL) $**
+CCOMPLB     = $(CC) $(CFLAGS_C_ALL) $<
 
 
 all: $(PROGPATH)
